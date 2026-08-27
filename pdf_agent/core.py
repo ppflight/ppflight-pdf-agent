@@ -33,7 +33,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _DOWNLOAD_NAME_RE = re.compile(r"^PPFlight-[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.pdf$")
@@ -43,10 +43,59 @@ _ALLOWED_TASK_KEYS = {
     "render": {"id", "type", "artifact_id", "revision", "snapshot", "snapshot_sha256", "download_filename"},
     "invalidate": {"id", "type", "artifact_id", "revision"},
 }
+_RENDERER_DIAGNOSTIC_CODES = frozenset({
+    "renderer_artifact_failed",
+    "renderer_cache_failed",
+    "renderer_dependencies_failed",
+    "renderer_exit_failed",
+    "renderer_input_failed",
+    "renderer_input_rejected",
+    "renderer_internal_failed",
+    "renderer_invalid_pdf",
+    "renderer_invalid_report",
+    "renderer_output_overflow",
+    "renderer_render_failed",
+    "renderer_start_failed",
+    "renderer_timed_out",
+})
+# This is deliberately the complete set of task-failure values that may reach
+# stderr (and therefore systemd's journal).  Do not derive log text from an
+# exception, task, renderer output, or other runtime data.
+TASK_DIAGNOSTIC_CODES = _RENDERER_DIAGNOSTIC_CODES | frozenset({"task_processing_failed"})
+_RENDERER_EXIT_MARKERS = {
+    b"PPFLIGHT_RENDERER_ERROR=artifact": "renderer_artifact_failed",
+    b"PPFLIGHT_RENDERER_ERROR=cache": "renderer_cache_failed",
+    b"PPFLIGHT_RENDERER_ERROR=dependencies": "renderer_dependencies_failed",
+    b"PPFLIGHT_RENDERER_ERROR=input": "renderer_input_rejected",
+    b"PPFLIGHT_RENDERER_ERROR=internal": "renderer_internal_failed",
+    b"PPFLIGHT_RENDERER_ERROR=render": "renderer_render_failed",
+}
 
 
 class AgentError(Exception):
     """An expected, safe-to-report agent failure."""
+
+
+class RendererError(AgentError):
+    """A renderer failure with a locally safe, fixed diagnostic code."""
+
+    def __init__(self, code: str):
+        self.code = code if code in _RENDERER_DIAGNOSTIC_CODES else "renderer_exit_failed"
+        super().__init__(self.code)
+
+
+def _task_diagnostic_code(error: AgentError) -> str:
+    """Map every task error to the strict local diagnostic allow-list."""
+    if isinstance(error, RendererError):
+        return error.code
+    return "task_processing_failed"
+
+
+def _write_task_diagnostic(code: str) -> None:
+    """Write a fixed event for journald without exposing task or error data."""
+    if code not in TASK_DIAGNOSTIC_CODES:
+        code = "task_processing_failed"
+    print("ppflight-pdf-agent: task_failed=" + code, file=sys.stderr, flush=True)
 
 
 class AdminConflict(AgentError):
@@ -557,18 +606,29 @@ class Renderer:
             raise AgentError("fixed PPFlight font checksum mismatch")
         self.environment = {"PPFLIGHT_REQUIRE_CJK_FONT": "1", "PPFLIGHT_CJK_FONT_SHA256": _FONT_SHA256}
 
+    @staticmethod
+    def _exit_diagnostic(output: bytes) -> str:
+        """Classify the renderer's bounded output without logging it."""
+        return _RENDERER_EXIT_MARKERS.get(output.strip(), "renderer_exit_failed")
+
     def render(self, snapshot: Dict[str, Any], artifact_id: str, revision: int) -> Tuple[str, str, int]:
         # Snapshot is data, never a command argument or a file path controlled by ADMIN.
-        snapshot_bytes = canonical_json(snapshot)
+        try:
+            snapshot_bytes = canonical_json(snapshot)
+        except AgentError as exc:
+            raise RendererError("renderer_input_rejected") from exc
         if len(snapshot_bytes) > 512 * 1024:
-            raise AgentError("snapshot exceeds input limit")
-        descriptor, output_name = tempfile.mkstemp(prefix=".render-", suffix=".pdf", dir=str(self.config.artifact_dir))
-        os.close(descriptor)
-        os.unlink(output_name)
+            raise RendererError("renderer_input_rejected")
+        try:
+            descriptor, output_name = tempfile.mkstemp(prefix=".render-", suffix=".pdf", dir=str(self.config.artifact_dir))
+            os.close(descriptor)
+            os.unlink(output_name)
+        except OSError as exc:
+            raise RendererError("renderer_artifact_failed") from exc
         final_name = "PPFlight-%s-%s.pdf" % (artifact_id, revision)
         final_path = (self.config.artifact_dir / final_name).resolve()
         if final_path.parent != self.config.artifact_dir:
-            raise AgentError("artifact path escaped configured directory")
+            raise RendererError("renderer_artifact_failed")
         writer: Optional[threading.Thread] = None
         process: Optional[subprocess.Popen] = None
         try:
@@ -580,7 +640,7 @@ class Renderer:
                                            shell=False, close_fds=True, start_new_session=True, cwd=str(self.root),
                                            env=self.environment)
             except OSError as exc:
-                raise AgentError("cannot start fixed PHP renderer") from exc
+                raise RendererError("renderer_start_failed") from exc
             writer_error = []
             def write_stdin() -> None:
                 try:
@@ -608,34 +668,34 @@ class Renderer:
                     if len(output) > 8192:
                         os.killpg(process.pid, signal.SIGKILL)
                         process.wait()
-                        raise AgentError("renderer output exceeds limit")
+                        raise RendererError("renderer_output_overflow")
                     if not chunk:
                         break
                 if process.wait(timeout=max(0.1, deadline - time.monotonic())) != 0:
-                    raise AgentError("renderer failed")
+                    raise RendererError(self._exit_diagnostic(bytes(output)))
             except subprocess.TimeoutExpired as exc:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
-                raise AgentError("renderer timed out") from exc
+                raise RendererError("renderer_timed_out") from exc
             writer.join(timeout=1)
             if writer.is_alive() or writer_error:
-                raise AgentError("renderer input channel failed")
+                raise RendererError("renderer_input_failed")
             try:
                 try:
                     report = _decode_json(bytes(output), "renderer did not return a JSON report")
                 except AgentError as exc:
-                    raise AgentError("renderer did not return a JSON report") from exc
+                    raise RendererError("renderer_invalid_report") from exc
                 if (not isinstance(report, dict) or set(report) != {"ok", "sha256", "size_bytes"}
                         or report["ok"] is not True or not isinstance(report["sha256"], str)
                         or not _SHA_RE.fullmatch(report["sha256"]) or isinstance(report["size_bytes"], bool)
                         or not isinstance(report["size_bytes"], int)):
-                    raise AgentError("renderer report schema is invalid")
+                    raise RendererError("renderer_invalid_report")
                 size = os.path.getsize(output_name)
                 if size < 5 or size > self.config.pdf_max_bytes:
-                    raise AgentError("renderer output has invalid size")
+                    raise RendererError("renderer_invalid_pdf")
                 with open(output_name, "rb") as produced:
                     if produced.read(5) != b"%PDF-":
-                        raise AgentError("renderer output is not a PDF")
+                        raise RendererError("renderer_invalid_pdf")
                     produced.seek(0)
                     digest = hashlib.sha256()
                     while True:
@@ -645,11 +705,11 @@ class Renderer:
                         digest.update(block)
                 digest_value = digest.hexdigest()
                 if report["size_bytes"] != size or not hmac.compare_digest(report["sha256"], digest_value):
-                    raise AgentError("renderer report does not match produced PDF")
+                    raise RendererError("renderer_invalid_report")
                 os.replace(output_name, final_path)
                 return final_name, digest_value, size
             except OSError as exc:
-                raise AgentError("renderer did not produce a usable PDF") from exc
+                raise RendererError("renderer_artifact_failed") from exc
         finally:
             if process is not None and process.poll() is None:
                 try:
@@ -747,6 +807,7 @@ class Agent:
             self.store.save_completion(task["id"], fingerprint, True, result)
             return result
         except AgentError as exc:
+            _write_task_diagnostic(_task_diagnostic_code(exc))
             result = {"status": "failed", "code": "processing_failed"}
             self.store.save_completion(task["id"], fingerprint, False, result)
             return result

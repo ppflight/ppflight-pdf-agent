@@ -9,30 +9,30 @@ use PPFlight\InvoiceRenderer\SnapshotValidator;
 
 const RENDERER_ROOT = __DIR__ . '/..';
 
-function fail(string $message): never
+function fail(string $code): never
 {
-    fwrite(STDERR, "renderer: " . $message . PHP_EOL);
+    fwrite(STDERR, "PPFLIGHT_RENDERER_ERROR=" . $code . PHP_EOL);
     exit(1);
 }
 
-function absoluteDirectory(string $path, string $label): string
+function absoluteDirectory(string $path): string
 {
     if ($path === '' || $path[0] !== '/' || str_contains($path, "\0") || !is_dir($path) || is_link($path) || !is_writable($path)) {
-        fail($label . ' must be an existing writable, non-symlink absolute directory.');
+        fail('cache');
     }
     $real = realpath($path);
     if ($real === false) {
-        fail($label . ' cannot be resolved.');
+        fail('cache');
     }
     return $real;
 }
 
 $options = getopt('', ['input:', 'output:', 'cache-dir:']);
 if (!isset($options['output'], $options['cache-dir']) || !is_string($options['output']) || !is_string($options['cache-dir'])) {
-    fail('usage: render.php --output ABSOLUTE_PATH --cache-dir ABSOLUTE_DIRECTORY [--input ABSOLUTE_PATH]');
+    fail('input');
 }
 if (isset($options['input']) && (!is_string($options['input']) || $options['input'] === '' || $options['input'][0] !== '/')) {
-    fail('--input must be an absolute path.');
+    fail('input');
 }
 
 $autoload = RENDERER_ROOT . '/vendor/autoload.php';
@@ -41,7 +41,7 @@ if (!is_file($autoload)) {
     if (is_string($testAutoload) && str_starts_with($testAutoload, '/') && is_file($testAutoload)) {
         $autoload = $testAutoload;
     } else {
-        fail('renderer dependencies are not installed (expected renderer/vendor/autoload.php).');
+        fail('dependencies');
     }
 }
 require $autoload;
@@ -77,13 +77,15 @@ try {
     $snapshot = (new SnapshotValidator())->decodeAndValidate($input);
     $assets = realpath(RENDERER_ROOT . '/assets');
     if ($assets === false || is_link($assets)) {
-        throw new RenderException('renderer assets directory is unavailable.');
+        throw new RenderException('renderer assets directory is unavailable.', 'dependencies');
     }
-    $cache = absoluteDirectory($options['cache-dir'], '--cache-dir');
+    $cache = absoluteDirectory($options['cache-dir']);
     $result = (new InvoiceRenderer($assets, $cache))->render($snapshot, $options['output']);
     fwrite(STDOUT, json_encode($result, JSON_THROW_ON_ERROR) . PHP_EOL);
-} catch (RenderException|JsonException $exception) {
-    fail($exception->getMessage());
+} catch (RenderException $exception) {
+    fail($exception->diagnosticCode());
+} catch (JsonException $exception) {
+    fail('internal');
 } catch (Throwable $exception) {
-    fail('render failed: ' . $exception->getMessage());
+    fail('internal');
 }

@@ -82,7 +82,7 @@ All subsequent calls use `Authorization: Bearer <agent_token>`.
 ```json
 {
   "agent_id": "agent-01",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "binding_mode": "singleton",
   "capacity": 1,
   "running_jobs": 0,
@@ -144,7 +144,10 @@ After processing, the agent calls `POST /agents/complete` with its bearer token:
 
 Completion is durable and retry-safe for the same task and canonical task
 fingerprint. A rendering error reports `{"status":"failed","code":"processing_failed"}`
-without internal details. ADMIN must return exactly `{"ok":true}` (or that
+without internal details. Locally, the Agent emits only a fixed allow-listed
+diagnostic code to stderr (and therefore journald); it never logs a task,
+snapshot, renderer output, exception text, credential, path, or signed URL.
+ADMIN must return exactly `{"ok":true}` (or that
 object inside the documented `data` envelope); otherwise the completion stays
 pending locally and is retried before another task is claimed.
 

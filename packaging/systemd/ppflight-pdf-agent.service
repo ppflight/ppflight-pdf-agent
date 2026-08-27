@@ -47,7 +47,9 @@ RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
-MemoryDenyWriteExecute=yes
+# Do not enable MemoryDenyWriteExecute here. Supported PHP builds and their
+# fixed rendering extensions require executable runtime mappings; enabling it
+# makes the Python-to-PHP renderer fail inside this otherwise valid sandbox.
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 ReadWritePaths=/var/lib/ppflight-pdf-agent @ARTIFACT_DIR@

@@ -47,12 +47,22 @@ if [[ -n "${VERSION}" ]]; then
   }
 fi
 grep -Fqx 'User=ppflight-pdf' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
+grep -Fqx 'NoNewPrivileges=yes' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
 grep -Fqx 'ProtectSystem=strict' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
-grep -Fq 'CapabilityBoundingSet=' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
+grep -Fqx 'PrivateTmp=yes' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
+grep -Fqx 'PrivateDevices=yes' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
+grep -Fqx 'RestrictNamespaces=yes' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
+grep -Fqx 'SystemCallFilter=@system-service' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
+grep -Fqx 'CapabilityBoundingSet=' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
 grep -Fq 'verify-runtime-config.py' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
 grep -Fq 'agent.py --config /etc/ppflight-pdf-agent/config.json run' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
 grep -Fq '@ARTIFACT_DIR@' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
 grep -Fqx 'ReadWritePaths=/var/lib/ppflight-pdf-agent @ARTIFACT_DIR@' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
+if grep -Eq '^[[:space:]]*MemoryDenyWriteExecute[[:space:]]*=[[:space:]]*yes[[:space:]]*$' \
+  "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"; then
+  echo "MemoryDenyWriteExecute=yes is incompatible with the supported PHP renderer runtime" >&2
+  exit 1
+fi
 if grep -Fqx 'ProcSubset=pid' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"; then
   echo "unsupported ProcSubset=pid hardening is present" >&2; exit 1
 fi

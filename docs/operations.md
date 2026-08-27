@@ -63,6 +63,13 @@ host and fixed port are `127.0.0.1` and `9760`, with the latter validated at ser
 add a public bind address, a broader `ReadWritePaths`, or a capability simply to
 work around a renderer problem; fix or isolate the renderer instead.
 
+`MemoryDenyWriteExecute=yes` is intentionally not part of this unit. The fixed
+PHP/Dompdf renderer on supported distributions requires executable runtime
+mappings, and enabling that property prevents the Python worker from completing
+the PHP render subprocess. The remaining process, filesystem, device, kernel,
+namespace, syscall, capability, resource, and network restrictions stay in
+force.
+
 `poll_interval_seconds` may be configured only between 2 and 30 seconds. The
 core defaults to a 2 GiB available-memory gate and a 10 MiB generated-PDF cap;
 it also requires 1 GiB free on the artifact filesystem before claiming work.

@@ -14,7 +14,8 @@ from urllib.error import HTTPError
 
 import agent as agent_cli
 from pdf_agent.core import (AdminAuthenticationError, AdminClient, AdminConflict, Agent, AgentConfig, AgentError,
-                            DownloadServer, canonical_json_sha256, validate_task)
+                            DownloadServer, Renderer, RendererError, TASK_DIAGNOSTIC_CODES,
+                            canonical_json_sha256, validate_task)
 
 
 class AgentCoreTests(unittest.TestCase):
@@ -98,6 +99,46 @@ class AgentCoreTests(unittest.TestCase):
         finally:
             source.close()
 
+    def test_renderer_exit_output_maps_only_to_fixed_diagnostics(self):
+        cases = {
+            b"PPFLIGHT_RENDERER_ERROR=artifact\n": "renderer_artifact_failed",
+            b"PPFLIGHT_RENDERER_ERROR=cache\n": "renderer_cache_failed",
+            b"PPFLIGHT_RENDERER_ERROR=dependencies\n": "renderer_dependencies_failed",
+            b"PPFLIGHT_RENDERER_ERROR=input\n": "renderer_input_rejected",
+            b"PPFLIGHT_RENDERER_ERROR=internal\n": "renderer_internal_failed",
+            b"PPFLIGHT_RENDERER_ERROR=render\n": "renderer_render_failed",
+            b"warning\nPPFLIGHT_RENDERER_ERROR=render\n": "renderer_exit_failed",
+            b"customer=Alice token=secret https://example.test/download?grant=signature\n": "renderer_exit_failed",
+        }
+        for output, expected in cases.items():
+            with self.subTest(output=output):
+                self.assertEqual(Renderer._exit_diagnostic(output), expected)
+                self.assertIn(expected, TASK_DIAGNOSTIC_CODES)
+
+    def test_renderer_failure_diagnostic_is_safe_and_failure_completion_is_idempotent(self):
+        self.agent.renderer.render = Mock(side_effect=RendererError("renderer_timed_out"))
+        stderr = io.StringIO()
+        with patch("sys.stderr", stderr):
+            first = self.agent.process_task(self.render_task())
+            second = self.agent.process_task(self.render_task())
+        self.assertEqual(first, {"status": "failed", "code": "processing_failed"})
+        self.assertEqual(second, first)
+        self.agent.renderer.render.assert_called_once()
+        self.assertEqual(stderr.getvalue(), "ppflight-pdf-agent: task_failed=renderer_timed_out\n")
+
+    def test_task_failure_never_logs_exception_text_or_sensitive_values(self):
+        secret = "Alice Example token=super-secret /private/state.json https://example.test/?grant=signed-value"
+        self.agent.renderer.render = Mock(side_effect=AgentError(secret))
+        stderr = io.StringIO()
+        with patch("sys.stderr", stderr):
+            result = self.agent.process_task(self.render_task())
+        self.assertEqual(result, {"status": "failed", "code": "processing_failed"})
+        diagnostic = stderr.getvalue()
+        self.assertEqual(diagnostic, "ppflight-pdf-agent: task_failed=task_processing_failed\n")
+        self.assertTrue(diagnostic.rstrip().split("=", 1)[1] in TASK_DIAGNOSTIC_CODES)
+        for unsafe in ("Alice", "super-secret", "state.json", "https://", "signed-value"):
+            self.assertNotIn(unsafe, diagnostic)
+
     def test_fixed_renderer_writes_a_real_ppflight_prefixed_pdf(self):
         vendor = Path(__file__).resolve().parents[1] / "renderer" / "vendor" / "autoload.php"
         if not vendor.is_file():
@@ -110,6 +151,14 @@ class AgentCoreTests(unittest.TestCase):
         self.assertEqual(produced.read_bytes()[:5], b"%PDF-")
         self.assertEqual(hashlib.sha256(produced.read_bytes()).hexdigest(), digest)
         self.assertEqual(produced.stat().st_size, size)
+
+    def test_fixed_renderer_rejects_invalid_snapshot_with_input_diagnostic(self):
+        vendor = Path(__file__).resolve().parents[1] / "renderer" / "vendor" / "autoload.php"
+        if not vendor.is_file():
+            self.skipTest("renderer/vendor is not installed")
+        with self.assertRaises(RendererError) as failure:
+            self.agent.renderer.render({}, "invoice-invalid", 1)
+        self.assertEqual(failure.exception.code, "renderer_input_rejected")
 
     def test_same_task_id_with_different_canonical_payload_is_rejected(self):
         produced = self.config.artifact_dir / "artifact-1-4.pdf"
@@ -192,6 +241,22 @@ class AgentCoreTests(unittest.TestCase):
         self.agent.cycle()
         self.assertEqual([call[0] for call in calls], ["/agents/heartbeat", "/agents/complete", "/agents/claim"])
         self.assertTrue(all(call[2] == "t" * 32 for call in calls))
+        self.assertEqual(list(self.agent.store.pending_completions()), [])
+
+    def test_pending_failed_completion_is_redelivered_before_claim(self):
+        self.bind_local()
+        failed = {"status": "failed", "code": "processing_failed"}
+        self.agent.store.save_completion("job-failed", "b" * 64, False, failed)
+        calls = []
+
+        def post(path, data, token=None, **kwargs):
+            calls.append((path, data, token))
+            return {"task": None} if path == "/agents/claim" else {"ok": True}
+
+        self.agent.admin.post = Mock(side_effect=post)
+        self.agent.cycle()
+        self.assertEqual([call[0] for call in calls], ["/agents/heartbeat", "/agents/complete", "/agents/claim"])
+        self.assertEqual(calls[1][1]["result"], failed)
         self.assertEqual(list(self.agent.store.pending_completions()), [])
 
     def test_check_rejects_heartbeat_without_explicit_success(self):

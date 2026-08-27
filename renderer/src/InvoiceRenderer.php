@@ -23,8 +23,8 @@ final class InvoiceRenderer
     public function render(array $snapshot, string $outputPath): array
     {
         $outputPath = $this->outputPath($outputPath);
-        $this->ensureDirectory($this->cacheDirectory, 'cache directory');
-        $this->ensureDirectory(dirname($outputPath), 'output directory');
+        $this->ensureDirectory($this->cacheDirectory, 'cache directory', 'cache');
+        $this->ensureDirectory(dirname($outputPath), 'output directory', 'artifact');
         $fontPath = $this->fontPath();
 
         $options = new Options();
@@ -62,11 +62,11 @@ final class InvoiceRenderer
     {
         $lock = fopen($this->cacheDirectory . '/font-cache.lock', 'c+b');
         if ($lock === false) {
-            throw new RenderException('The PPFlight invoice font cache lock is unavailable.');
+            throw new RenderException('The PPFlight invoice font cache lock is unavailable.', 'cache');
         }
         try {
             if (!flock($lock, LOCK_EX)) {
-                throw new RenderException('The PPFlight invoice font cache could not be locked.');
+                throw new RenderException('The PPFlight invoice font cache could not be locked.', 'cache');
             }
             // Dompdf reads installed-fonts.json during construction, while
             // registerFont() can rewrite it. The lock prevents a cold-start
@@ -78,7 +78,7 @@ final class InvoiceRenderer
                 'style' => 'normal',
             ], $fontPath);
             if (!$registered) {
-                throw new RenderException('The PPFlight invoice font could not be registered.');
+                throw new RenderException('The PPFlight invoice font could not be registered.', 'cache');
             }
             return $dompdf;
         } finally {
@@ -91,15 +91,15 @@ final class InvoiceRenderer
     {
         $font = $this->assetsDirectory . '/PPFlightSansSC-Regular.ttf';
         if (!is_file($font) || is_link($font) || !is_readable($font) || filesize($font) === 0) {
-            throw new RenderException('Required PPFlight Sans SC font asset is unavailable.');
+            throw new RenderException('Required PPFlight Sans SC font asset is unavailable.', 'dependencies');
         }
         $hash = hash_file('sha256', $font);
         if ($hash === false) {
-            throw new RenderException('PPFlight Sans SC font hash could not be calculated.');
+            throw new RenderException('PPFlight Sans SC font hash could not be calculated.', 'dependencies');
         }
         $expectedHash = getenv('PPFLIGHT_CJK_FONT_SHA256');
         if (is_string($expectedHash) && $expectedHash !== '' && !hash_equals(strtolower($expectedHash), $hash)) {
-            throw new RenderException('PPFlight Sans SC font hash does not match configuration.');
+            throw new RenderException('PPFlight Sans SC font hash does not match configuration.', 'dependencies');
         }
         return $font;
     }
@@ -107,31 +107,31 @@ final class InvoiceRenderer
     private function outputPath(string $outputPath): string
     {
         if ($outputPath === '' || $outputPath[0] !== '/' || str_contains($outputPath, "\0")) {
-            throw new RenderException('--output must be an absolute path.');
+            throw new RenderException('--output must be an absolute path.', 'artifact');
         }
         $parent = realpath(dirname($outputPath));
         $name = basename($outputPath);
         if ($parent === false || $name === '.' || $name === '..') {
-            throw new RenderException('--output parent directory is invalid.');
+            throw new RenderException('--output parent directory is invalid.', 'artifact');
         }
         $outputPath = $parent . '/' . $name;
         if (is_link($outputPath) || (file_exists($outputPath) && !is_file($outputPath))) {
-            throw new RenderException('--output must be a regular file path.');
+            throw new RenderException('--output must be a regular file path.', 'artifact');
         }
         return $outputPath;
     }
 
-    private function ensureDirectory(string $directory, string $label): void
+    private function ensureDirectory(string $directory, string $label, string $diagnosticCode): void
     {
         if (!is_dir($directory) || !is_writable($directory) || is_link($directory)) {
-            throw new RenderException($label . ' must be a writable, non-symlink directory.');
+            throw new RenderException($label . ' must be a writable, non-symlink directory.', $diagnosticCode);
         }
     }
 
     private function validatePdf(string $pdf): void
     {
         if (strlen($pdf) < self::MIN_PDF_BYTES || !str_starts_with($pdf, '%PDF-')) {
-            throw new RenderException('Dompdf did not return a valid PDF.');
+            throw new RenderException('Dompdf did not return a valid PDF.', 'render');
         }
     }
 
@@ -139,11 +139,11 @@ final class InvoiceRenderer
     {
         $temp = tempnam(dirname($outputPath), '.ppflight-invoice-');
         if ($temp === false) {
-            throw new RenderException('Could not create a temporary output file.');
+            throw new RenderException('Could not create a temporary output file.', 'artifact');
         }
         try {
             if (file_put_contents($temp, $pdf, LOCK_EX) !== strlen($pdf) || !rename($temp, $outputPath)) {
-                throw new RenderException('Could not atomically write PDF output.');
+                throw new RenderException('Could not atomically write PDF output.', 'artifact');
             }
             @chmod($outputPath, 0600);
         } finally {

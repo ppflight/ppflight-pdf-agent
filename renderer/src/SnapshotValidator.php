@@ -21,7 +21,7 @@ final class SnapshotValidator
         try {
             $snapshot = json_decode($json, true, 64, JSON_THROW_ON_ERROR);
         } catch (\JsonException $exception) {
-            throw new RenderException('Snapshot must be valid JSON.', 0, $exception);
+            throw new RenderException('Snapshot must be valid JSON.', 'input', $exception);
         }
 
         if (!is_array($snapshot) || array_is_list($snapshot)) {
