@@ -39,7 +39,10 @@ take_lock
 if [[ ${INSTALL_DEPS} -eq 1 ]]; then
   install_dependencies
 fi
-python_and_php_ok || die "Python >=3.9, PHP >=8.2 with mbstring/xml/gd, and Composer are required (use --install-deps where available)"
+MINIMUM_PHP="$(current_required_php_version)" || die "cannot resolve the PHP policy for this distribution"
+python_and_php_ok "${MINIMUM_PHP}" || \
+  die "Python >=3.9 and PHP >=${MINIMUM_PHP} with mbstring/xml/gd are required (use --install-deps where available)"
+PHP_BIN="$(fixed_php_binary)" || die "fixed PHP runtime is unavailable"
 
 SOURCE_VERSION="$(python3 "${SOURCE_DIR}/agent.py" version)" || die "cannot read source version"
 [[ "${SOURCE_VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || die "source version is invalid"
@@ -137,17 +140,27 @@ RELEASE_PATHS=(
   pdf_agent renderer packaging scripts docs
 )
 tar -C "${SOURCE_DIR}" \
-  --exclude=renderer/vendor --exclude='__pycache__' --exclude='*.pyc' \
+  --exclude='__pycache__' --exclude='*.pyc' \
   -cf - -- "${RELEASE_PATHS[@]}" | tar -C "${RELEASE_DIR}" -xf -
 
 # The agent is stdlib-only. Do not bootstrap or upgrade pip from the network.
 python3 -m venv --without-pip "${RELEASE_DIR}/.venv"
 if [[ -f "${RELEASE_DIR}/renderer/composer.json" ]]; then
   [[ -f "${RELEASE_DIR}/renderer/composer.lock" ]] || die "renderer/composer.lock is required for reproducible installation"
-  (cd "${RELEASE_DIR}/renderer" && \
-    COMPOSER_ALLOW_SUPERUSER=1 composer validate --strict --no-check-publish && \
-    COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --prefer-dist --no-interaction --no-progress \
-      --no-plugins --no-scripts --classmap-authoritative)
+  if [[ ! -f "${RELEASE_DIR}/renderer/vendor/autoload.php" ]]; then
+    command -v composer >/dev/null || \
+      die "renderer dependencies are not bundled; Composer 2 is required for a source-checkout installation"
+    composer --version --no-ansi | grep -Eq '^Composer version 2\.' || \
+      die "Composer 2 is required for a source-checkout installation"
+    (cd "${RELEASE_DIR}/renderer" && \
+      COMPOSER_ALLOW_SUPERUSER=1 composer validate --strict --no-check-publish && \
+      COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --prefer-dist --no-interaction --no-progress \
+        --no-plugins --no-scripts --classmap-authoritative)
+  fi
+  # $argv is evaluated by PHP, not Bash.
+  # shellcheck disable=SC2016
+  "${PHP_BIN}" -r 'require $argv[1]; exit(class_exists("Dompdf\\Dompdf") ? 0 : 1);' \
+    "${RELEASE_DIR}/renderer/vendor/autoload.php" || die "bundled renderer dependencies failed validation"
 fi
 
 install -m 0644 "${RELEASE_DIR}/packaging/systemd/${SERVICE_NAME}" "${UNIT_FILE}"

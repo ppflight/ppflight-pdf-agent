@@ -1,5 +1,36 @@
 # Operations and security boundaries
 
+## Supported operating systems
+
+The installer uses an explicit allow-list: Debian 12/13; Ubuntu 22.04, 24.04
+and 26.04 LTS; CentOS Stream 9/10; Rocky Linux 9/10; and AlmaLinux 9/10.
+Debian/Ubuntu dependencies come only from the configured APT repositories.
+EL-family dependencies come only from configured DNF repositories; a clean EL9
+host selects the official PHP 8.2 AppStream. The installer never resets or
+switches an existing PHP stream and never adds EPEL, Remi, a PPA, or another
+third-party repository.
+
+The runtime requires Python 3.9+ and PHP 8.2+ with `mbstring`, `xml`, and `gd`.
+Ubuntu 22.04 is the sole exception and may use its distribution-maintained PHP
+8.1 runtime. Composer metadata remains compatible with PHP 8.1 so that this
+explicit exception can install the same locked renderer.
+Immutable GitHub Release archives include the renderer dependencies produced
+from `renderer/composer.lock`, so Composer is not installed or executed on the
+target. A source-checkout installation may use Composer 2 explicitly; that is a
+development/maintenance path rather than the production deployment default.
+The release CI uses digest-pinned x86_64 container images and runs package,
+real-render, and Nginx-configuration smoke checks for every listed OS major
+version. It also verifies the unit file with each distribution's
+`systemd-analyze`; containers do not claim to exercise systemd as PID 1, and
+this release does not claim a tested non-x86_64 architecture.
+
+If a PHP resolved from the Agent's fixed command path is custom and does not
+meet the complete runtime contract, dependency installation fails closed
+instead of changing PHP alternatives, FPM services, or repository modules. If
+aaPanel keeps PHP only under its private panel path and no system CLI PHP is
+present, installing the distribution CLI PHP is isolated from the panel's
+runtime and does not modify its sites or PHP/FPM configuration.
+
 ## Filesystem contract
 
 | Purpose | Location | Owner/mode | Retention |

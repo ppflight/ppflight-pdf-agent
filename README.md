@@ -13,27 +13,44 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
 
 ## 支持环境
 
-- Debian 12 或受支持的 Ubuntu；
+- Debian 12、Debian 13；
+- Ubuntu 22.04 LTS、24.04 LTS、26.04 LTS；
+- CentOS Stream 9/10、Rocky Linux 9/10、AlmaLinux 9/10；
 - Python 3.9 或更高版本；
-- PHP 8.2 或更高版本，启用 `mbstring`、`xml`、`gd`；
-- Composer、curl、systemd；
-- Tunnel 模式还需要 Nginx 和当前受支持的 `cloudflared`。Debian/Ubuntu 可直接安装
-  Nginx；`cloudflared` 请使用 [Cloudflare 官方软件包](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/)，不要从未知脚本安装；
+- PHP 8.2 或更高版本，启用 `mbstring`、`xml`、`gd`；Ubuntu 22.04 例外，允许
+  使用其发行版维护的 PHP 8.1；
+- curl、systemd；GitHub Release 已包含按锁文件构建的渲染依赖，目标机不需要 Composer；
+- Tunnel 模式还需要 Nginx 和当前受支持的 `cloudflared`。`cloudflared` 请使用
+  [Cloudflare 官方软件包](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/)，不要从未知脚本安装；
 - 公网下载可使用 Nginx HTTPS；异地 Agent 推荐使用 Cloudflare Tunnel，不需要向
   Internet 开放 Agent 服务器的入站端口。
+
+安装器只接受上表明确列出的发行版和主版本，不会按 `ID_LIKE` 猜测兼容性，也不会把
+RHEL、Fedora 或其他衍生版当成已验证平台。EL 9 系列的干净主机会从系统 AppStream
+选择 PHP 8.2。如果固定命令路径中已有不完整或过旧的自定义 PHP，安装器会停止，不会
+切换模块、替换软链或影响现有网站。aaPanel 仅在自己的私有路径提供 PHP、且系统没有
+CLI PHP 时，安装器可另装发行版的 CLI PHP；这不会修改 aaPanel 的 PHP/FPM。当前发布
+CI 在 x86_64 上验证全部发行版；未将其他 CPU 架构列为本版本的发布保证。
 
 ## 从 GitHub 自助安装
 
 仓库：`ppflight/ppflight-pdf-agent`
 
-### 方法一：克隆指定版本（推荐）
+### 方法一：克隆指定版本（开发或维护）
+
+源码仓库不提交 `renderer/vendor`。从源码安装需要由管理员预先提供 Composer 2，并且
+必须先按锁文件安装渲染依赖；获取方式应使用
+[Composer 官方下载说明](https://getcomposer.org/download/)。如果只是部署服务器，
+优先使用下方自带依赖、目标机无需 Composer 的 GitHub Release。
 
 如果使用 SSH 克隆私有仓库，请先在服务器配置 GitHub SSH Key，然后：
 
 ```bash
-git clone --branch v1.0.1 --depth 1 git@github.com:ppflight/ppflight-pdf-agent.git
+git clone --branch v1.0.2 --depth 1 git@github.com:ppflight/ppflight-pdf-agent.git
 cd ppflight-pdf-agent
-sudo ./install.sh --version 1.0.1 --install-deps \
+composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction \
+  --no-progress --no-plugins --no-scripts --classmap-authoritative
+sudo ./install.sh --version 1.0.2 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
@@ -42,15 +59,17 @@ sudo ./install.sh --version 1.0.1 --install-deps \
 ```bash
 gh repo clone ppflight/ppflight-pdf-agent
 cd ppflight-pdf-agent
-git checkout v1.0.1
-sudo ./install.sh --version 1.0.1 --install-deps \
+git checkout v1.0.2
+composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction \
+  --no-progress --no-plugins --no-scripts --classmap-authoritative
+sudo ./install.sh --version 1.0.2 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
 安装器会：
 
 1. 创建无登录权限的 `ppflight-pdf` 系统账户；
-2. 安装不可变版本到 `/opt/ppflight-pdf-agent/releases/1.0.1`；
+2. 安装不可变版本到 `/opt/ppflight-pdf-agent/releases/1.0.2`；
 3. 创建 `/etc/ppflight-pdf-agent/config.json`；
 4. 创建并启动 `ppflight-pdf-agent.service`；
 5. 安装中文运维命令 `/usr/local/bin/ag-pdf`。
@@ -62,24 +81,24 @@ Agent 写入的持久磁盘，也可以省略参数并使用源码目录下的 `
 如需使用其他独立磁盘，只能在首次安装时指定：
 
 ```bash
-sudo ./install.sh --version 1.0.1 --install-deps --artifact-dir /srv/ppflight-pdf-artifacts
+sudo ./install.sh --version 1.0.2 --install-deps --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
-### 方法二：安装 GitHub Release
+### 方法二：安装 GitHub Release（推荐）
 
-Release 同时提供压缩包和 SHA-256 文件。不要跳过校验：
+Release 同时提供压缩包和 SHA-256 文件，并已包含锁定的 PDF 渲染依赖。不要跳过校验：
 
 ```bash
 work_dir="$(mktemp -d)"
-gh release download v1.0.1 \
+gh release download v1.0.2 \
   --repo ppflight/ppflight-pdf-agent \
   --dir "$work_dir" \
-  --pattern 'ppflight-pdf-agent-1.0.1.tar.gz*'
+  --pattern 'ppflight-pdf-agent-1.0.2.tar.gz*'
 cd "$work_dir"
-sha256sum -c ppflight-pdf-agent-1.0.1.tar.gz.sha256
-tar -xzf ppflight-pdf-agent-1.0.1.tar.gz
-cd ppflight-pdf-agent-1.0.1
-sudo ./install.sh --version 1.0.1 --install-deps \
+sha256sum -c ppflight-pdf-agent-1.0.2.tar.gz.sha256
+tar -xzf ppflight-pdf-agent-1.0.2.tar.gz
+cd ppflight-pdf-agent-1.0.2
+sudo ./install.sh --version 1.0.2 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
@@ -173,11 +192,23 @@ Cloudflare 边缘
 
 ### 部署
 
-1. 安装依赖并确认版本。若 `cloudflared` 尚未安装，请先按上方官方软件包文档安装：
+1. 安装 Nginx/网络检查工具并确认版本。若 `cloudflared` 尚未安装，请先按上方官方
+   软件包文档安装。不要在 aaPanel 服务器上再安装第二套 Nginx：
+
+Debian / Ubuntu：
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y nginx netcat-openbsd
+```
+
+CentOS Stream / Rocky Linux / AlmaLinux：
+
+```bash
+sudo dnf install -y nginx nmap-ncat
+```
+
+```bash
 nginx -v
 cloudflared --version
 ```
@@ -190,6 +221,11 @@ sudo cp packaging/nginx/pdf-agent-local.conf.example \
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
+aaPanel 或其他自带 Nginx 的环境应先运行 `nginx -T` 找到实际生效的 `include` 目录，
+再把同一配置放入该目录；常见 aaPanel 路径是
+`/www/server/panel/vhost/nginx/ppflight-pdf-agent-local.conf`。仍必须先 `nginx -t`，并只
+reload 当前正在运行的 Nginx，不能安装或启动第二套服务。
 
 3. 推荐使用 **Dashboard 管理的 Tunnel**，不要和本地 credentials 模式混用：
 
@@ -293,12 +329,13 @@ VPS Nginx 公网 443
 
 ```bash
 sudo cp packaging/nginx/pdf-agent-public-tls.conf.example \
-  /etc/nginx/sites-available/ppflight-pdf-agent.conf
-sudo ln -s /etc/nginx/sites-available/ppflight-pdf-agent.conf \
-  /etc/nginx/sites-enabled/ppflight-pdf-agent.conf
+  /etc/nginx/conf.d/ppflight-pdf-agent.conf
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
+aaPanel 环境同样应使用 `nginx -T` 显示的现有 include 目录，而不是
+`/etc/nginx/conf.d`。
 
 只允许公网访问 TCP 443。`9760` 和 `9761` 必须保持仅本机可用。Nginx 示例只转发
 `/v1/download/...`，不会公开 `/healthz`、配置、状态文件或 PDF 文件夹，也不会记录
@@ -335,15 +372,15 @@ Agent 每次只处理一个任务。账单创建、支付、取消、退款或�
 仓库提供的签名校验接口。
 
 ```bash
-sudo ./update.sh --version 1.0.1 \
-  --url https://可信下载地址/ppflight-pdf-agent-1.0.1.tar.gz \
+sudo ./update.sh --version 1.0.2 \
+  --url https://可信下载地址/ppflight-pdf-agent-1.0.2.tar.gz \
   --sha256 64位SHA256值
 ```
 
 升级安装、启动或健康检查失败时会自动恢复上一个版本。手动回滚：
 
 ```bash
-sudo ./rollback.sh 1.0.0
+sudo ./rollback.sh 1.0.1
 ```
 
 ## 卸载
@@ -366,9 +403,12 @@ sudo ./uninstall.sh --purge
 shellcheck install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag scripts/*.sh
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 php tests/renderer_test.php
-./scripts/verify-release.sh --source . --version 1.0.1
+./tests/test-platform-support.sh
+./scripts/verify-release.sh --source . --version 1.0.2
 ```
 
-GitHub Actions 会执行 Python 3.9/3.12、PHP 8.2、Composer、ShellCheck、真实 PDF
-渲染和发布布局检查。协议和安全边界详见 [docs/protocol.md](docs/protocol.md) 与
-[docs/operations.md](docs/operations.md)。
+GitHub Actions 会执行 Python 3.9/3.12/3.13/3.14、PHP 8.1/8.2/8.4/8.5、Composer、
+ShellCheck、真实 PDF 渲染，并在每个发行版容器内安装依赖、解析 systemd 单元和两种
+Nginx 发布配置。容器镜像按摘要固定；发布资产只从当前 Git commit 的跟踪文件构建，
+并重新按锁文件生成渲染依赖。协议和安全边界详见
+[docs/protocol.md](docs/protocol.md) 与 [docs/operations.md](docs/operations.md)。

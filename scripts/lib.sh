@@ -26,15 +26,68 @@ require_root() {
   [[ ${EUID} -eq 0 ]] || die "run this command as root"
 }
 
-require_linux_distribution() {
-  [[ -r /etc/os-release ]] || die "only Debian 12 and supported Ubuntu releases are supported"
+supported_linux_distribution() {
+  local distribution_id=${1:-} version_id=${2:-} distribution_name=${3:-} major
+  major=${version_id%%.*}
+  case "${distribution_id}" in
+    debian) [[ "${version_id}" == "12" || "${version_id}" == "13" ]] ;;
+    ubuntu) [[ "${version_id}" == "22.04" || "${version_id}" == "24.04" || "${version_id}" == "26.04" ]] ;;
+    centos)
+      [[ "${distribution_name}" == *"CentOS Stream"* && ( "${major}" == "9" || "${major}" == "10" ) ]]
+      ;;
+    rocky|almalinux) [[ "${major}" == "9" || "${major}" == "10" ]] ;;
+    *) return 1 ;;
+  esac
+}
+
+distribution_package_family() {
+  case "${1:-}" in
+    debian|ubuntu) printf 'apt\n' ;;
+    centos|rocky|almalinux) printf 'dnf\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+required_php_version_for_distribution() {
+  local distribution_id=${1:-} version_id=${2:-} major
+  major=${version_id%%.*}
+  case "${distribution_id}" in
+    # Ubuntu 22.04's distribution-maintained runtime is PHP 8.1. All newer
+    # supported platforms must use PHP 8.2 or later.
+    ubuntu)
+      case "${version_id}" in
+        22.04) printf '8.1\n' ;;
+        24.04|26.04) printf '8.2\n' ;;
+        *) return 1 ;;
+      esac
+      ;;
+    debian)
+      [[ "${major}" == 12 || "${major}" == 13 ]] || return 1
+      printf '8.2\n'
+      ;;
+    centos|rocky|almalinux)
+      [[ "${major}" == 9 || "${major}" == 10 ]] || return 1
+      printf '8.2\n'
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+current_required_php_version() {
+  [[ -r /etc/os-release ]] || return 1
+  local ID='' VERSION_ID='' NAME=''
   # shellcheck disable=SC1091
   . /etc/os-release
-  case "${ID:-}" in
-    debian) [[ "${VERSION_ID:-}" == "12" ]] || die "Debian 12 is required" ;;
-    ubuntu) : ;; # Python/PHP versions are checked independently below.
-    *) die "only Debian 12 and Ubuntu are supported" ;;
-  esac
+  required_php_version_for_distribution "${ID:-}" "${VERSION_ID:-}"
+}
+
+require_linux_distribution() {
+  [[ -r /etc/os-release ]] || die "a supported Debian, Ubuntu, CentOS Stream, Rocky Linux or AlmaLinux release is required"
+  local ID='' VERSION_ID='' NAME=''
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  supported_linux_distribution "${ID:-}" "${VERSION_ID:-}" "${NAME:-}" || \
+    die "unsupported Linux release: ${ID:-unknown} ${VERSION_ID:-unknown}; see README.md for the supported matrix"
 }
 
 take_lock() {
@@ -132,25 +185,103 @@ ensure_runtime_dirs() {
   chmod 0750 "${artifact_dir}"
 }
 
-python_and_php_ok() {
+python_runtime_ok() {
   command -v python3 >/dev/null || return 1
-  command -v php >/dev/null || return 1
-  command -v composer >/dev/null || return 1
   python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 9))' || return 1
-  php -r 'exit(version_compare(PHP_VERSION, "8.2.0", ">=") ? 0 : 1);' || return 1
-  local extension
+  python3 -c 'import venv' || return 1
+}
+
+php_runtime_ok() {
+  local minimum_php=${1:-} php_binary extension
+  if [[ -z "${minimum_php}" ]]; then
+    minimum_php="$(current_required_php_version)" || return 1
+  fi
+  php_binary="$(fixed_php_binary)" || return 1
+  PHP_MINIMUM="${minimum_php}" "${php_binary}" -r \
+    'exit(version_compare(PHP_VERSION, getenv("PHP_MINIMUM"), ">=") ? 0 : 1);' || return 1
   for extension in mbstring xml gd; do
-    php -m | grep -Fxq "${extension}" || return 1
+    "${php_binary}" -m | grep -Fxq "${extension}" || return 1
   done
+}
+
+python_and_php_ok() {
+  python_runtime_ok && php_runtime_ok "${1:-}"
+}
+
+fixed_php_binary() {
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin command -v php
+}
+
+php_binary_is_os_managed() {
+  local php_binary
+  php_binary="$(fixed_php_binary)" || return 1
+  php_binary="$(readlink -f -- "${php_binary}")"
+  case "${1:-}" in
+    apt) dpkg-query -S "${php_binary}" >/dev/null 2>&1 ;;
+    dnf) rpm -qf "${php_binary}" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+install_apt_dependencies() {
+  local minimum_php=$1
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y --no-install-recommends \
+    ca-certificates coreutils curl findutils grep gzip passwd python3 \
+    python3-venv sed systemd tar util-linux
+  if ! php_runtime_ok "${minimum_php}"; then
+    if fixed_php_binary >/dev/null && ! php_binary_is_os_managed apt; then
+      die "the existing custom PHP runtime is incomplete; install PHP >=${minimum_php} with mbstring, xml and gd without changing the control-panel runtime"
+    fi
+    if fixed_php_binary >/dev/null && \
+       ! PHP_MINIMUM="${minimum_php}" "$(fixed_php_binary)" -r \
+         'exit(version_compare(PHP_VERSION, getenv("PHP_MINIMUM"), ">=") ? 0 : 1);'; then
+      die "refusing to replace an existing PHP runtime older than ${minimum_php}"
+    fi
+    apt-get install -y --no-install-recommends php-cli php-mbstring php-xml php-gd
+  fi
+}
+
+install_dnf_dependencies() {
+  local version_id=$1 minimum_php=$2 major
+  major=${version_id%%.*}
+  dnf install -y --setopt=install_weak_deps=False \
+    ca-certificates coreutils curl findutils grep gzip python3 sed shadow-utils \
+    systemd tar util-linux
+  if php_runtime_ok "${minimum_php}"; then
+    return 0
+  fi
+  if fixed_php_binary >/dev/null; then
+    if ! php_binary_is_os_managed dnf; then
+      die "the existing custom PHP runtime is incomplete; install PHP >=${minimum_php} with mbstring, xml and gd without changing the control-panel runtime"
+    fi
+    if ! PHP_MINIMUM="${minimum_php}" "$(fixed_php_binary)" -r \
+      'exit(version_compare(PHP_VERSION, getenv("PHP_MINIMUM"), ">=") ? 0 : 1);'; then
+      die "refusing to switch or replace an existing PHP runtime older than ${minimum_php}"
+    fi
+  elif [[ "${major}" == "9" ]]; then
+    # EL9 defaults to PHP 8.0. Select an official AppStream before installing
+    # any PHP RPMs, but never reset or switch a pre-existing system stream.
+    dnf module enable -y php:8.2 || \
+      die "the official PHP 8.2 AppStream is unavailable; configure a supported OS repository and retry"
+  fi
+  dnf install -y --setopt=install_weak_deps=False php-cli php-mbstring php-xml php-gd
 }
 
 install_dependencies() {
   require_linux_distribution
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y --no-install-recommends \
-    ca-certificates curl composer python3 python3-pip python3-venv \
-    php-cli php-mbstring php-xml php-gd
+  local ID='' VERSION_ID='' NAME='' package_family minimum_php
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  package_family="$(distribution_package_family "${ID:-}")" || die "unsupported package manager family"
+  minimum_php="$(required_php_version_for_distribution "${ID:-}" "${VERSION_ID:-}")" || \
+    die "cannot resolve the PHP policy for this distribution"
+  case "${package_family}" in
+    apt) install_apt_dependencies "${minimum_php}" ;;
+    dnf) install_dnf_dependencies "${VERSION_ID:-}" "${minimum_php}" ;;
+    *) die "unsupported package manager family" ;;
+  esac
 }
 
 health_check() {

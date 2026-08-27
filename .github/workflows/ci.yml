@@ -12,9 +12,11 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        python-version: ["3.9", "3.12"]
+        python-version: ["3.9", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -25,12 +27,17 @@ jobs:
 
   php:
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        php-version: ["8.1", "8.2", "8.4", "8.5"]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Set up PHP 8.2
+        with:
+          persist-credentials: false
+      - name: Set up PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
-          php-version: "8.2"
+          php-version: ${{ matrix.php-version }}
           extensions: mbstring, xml, gd
           tools: composer:v2
       - name: Check required extensions and Composer metadata
@@ -48,15 +55,80 @@ jobs:
         run: |
           php tests/renderer_test.php
           python3 -W error::ResourceWarning -m unittest tests.test_agent_core.AgentCoreTests.test_fixed_renderer_writes_a_real_ppflight_prefixed_pdf -v
+      - name: Build immutable release with bundled renderer dependencies
+        if: matrix.php-version == '8.2'
+        run: |
+          version="$(python3 agent.py version)"
+          archive="ppflight-pdf-agent-${version}.tar.gz"
+          ./scripts/build-release.sh --source . --version "$version" --output "$archive"
+          python3 scripts/verify-release-archive.py "$archive"
+          sha256sum "$archive" >"$archive.sha256"
+          sha256sum --check "$archive.sha256"
+
+  platform-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: debian-12
+            image: debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
+          - name: debian-13
+            image: debian:13-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+          - name: ubuntu-22.04
+            image: ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
+          - name: ubuntu-24.04
+            image: ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
+          - name: ubuntu-26.04
+            image: ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
+          - name: centos-stream-9
+            image: quay.io/centos/centos:stream9@sha256:64e5a212e4f2e7b706dbd822968914bb8def7de0a7fdfd3bf248241f8758101c
+          - name: centos-stream-10
+            image: quay.io/centos/centos:stream10@sha256:ad14f7d919c9b9995a236abace06e888d37d6145e048a6ae26770e1f5dc718a8
+          - name: rocky-9
+            image: quay.io/rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f
+          - name: rocky-10
+            image: quay.io/rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834
+          - name: almalinux-9
+            image: almalinux:9@sha256:d2515c769e7b73f95c4fde38c0a505336ff38f14990c0b7253b77060a049a743
+          - name: almalinux-10
+            image: almalinux:10@sha256:cc24bc5b6ac7e284f2f62a07bdaa1b15d3319fdcf46413c6b8fe9fa245068ddd
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build locked renderer dependencies for the smoke container
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: "8.2"
+          extensions: mbstring, xml, gd
+          tools: composer:v2
+      - name: Install locked renderer dependencies
+        run: composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction --no-progress --no-plugins --no-scripts --classmap-authoritative
+      - name: Stage credential-free tracked source
+        run: |
+          smoke_source="$RUNNER_TEMP/pdf-agent-platform-src"
+          mkdir -p "$smoke_source"
+          git archive --format=tar HEAD | tar -C "$smoke_source" -xf -
+          cp -a renderer/vendor "$smoke_source/renderer/vendor"
+      - name: Verify ${{ matrix.name }}
+        env:
+          PLATFORM_IMAGE: ${{ matrix.image }}
+        run: docker run --rm --volume "$RUNNER_TEMP/pdf-agent-platform-src:/src:ro" --workdir /src "$PLATFORM_IMAGE" bash scripts/ci-platform-smoke.sh
 
   shellcheck:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Install ShellCheck and Nginx
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck nginx-light openssl
       - name: Check operational scripts
-        run: shellcheck install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag scripts/*.sh
+        run: |
+          shellcheck install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag scripts/*.sh tests/*.sh
+          ./tests/test-platform-support.sh
       - name: Validate Nginx publication examples
         run: ./scripts/verify-nginx-config.sh
 
@@ -64,5 +136,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Validate packaging security invariants
         run: ./scripts/verify-release.sh --source .

@@ -20,8 +20,10 @@ done
 [[ -n "${SOURCE_DIR}" ]] || { usage; exit 2; }
 SOURCE_DIR="$(cd -P -- "${SOURCE_DIR}" && pwd)"
 for file in install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag \
-  scripts/status-report.py scripts/verify-nginx-config.sh \
-  scripts/lib.sh scripts/verify-release-archive.py packaging/systemd/ppflight-pdf-agent.service \
+  scripts/status-report.py scripts/verify-nginx-config.sh scripts/build-release.sh \
+  scripts/ci-platform-smoke.sh tests/test-platform-support.sh \
+  scripts/lib.sh scripts/verify-release-archive.py scripts/verify-runtime-config.py \
+  packaging/systemd/ppflight-pdf-agent.service \
   packaging/config.example.json packaging/nginx/pdf-agent-local.conf.example \
   packaging/nginx/pdf-agent-public-tls.conf.example packaging/cloudflared/config.yml.example \
   README.md docs/protocol.md docs/operations.md; do
@@ -32,6 +34,8 @@ if [[ -f "${SOURCE_DIR}/renderer/composer.json" ]]; then
     echo "renderer/composer.lock is required for reproducible Composer installs" >&2; exit 1;
   }
 fi
+grep -Fq '"php": ">=8.1"' "${SOURCE_DIR}/renderer/composer.json"
+"${SOURCE_DIR}/tests/test-platform-support.sh" >/dev/null
 
 if [[ -n "${VERSION}" ]]; then
   [[ "${VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || {
@@ -58,6 +62,18 @@ grep -Fqx 'MemoryMax=2G' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.ser
 grep -Fqx 'MemorySwapMax=512M' "${SOURCE_DIR}/packaging/systemd/ppflight-pdf-agent.service"
 if grep -Fq -- '--locked' "${SOURCE_DIR}/install.sh"; then
   echo "unsupported Composer --locked option is present in installer" >&2; exit 1
+fi
+if grep -Fq -- '--exclude=renderer/vendor' "${SOURCE_DIR}/install.sh"; then
+  echo "installer must preserve bundled renderer dependencies" >&2; exit 1
+fi
+grep -Fq 'Never trust a working-tree vendor directory' "${SOURCE_DIR}/scripts/build-release.sh"
+grep -Fq 'composer install' "${SOURCE_DIR}/scripts/build-release.sh"
+grep -Fq 'archive --format=tar HEAD' "${SOURCE_DIR}/scripts/build-release.sh"
+if [[ -f "${SOURCE_DIR}/renderer/vendor/autoload.php" ]]; then
+  # $argv is evaluated by PHP, not Bash.
+  # shellcheck disable=SC2016
+  php -r 'require $argv[1]; exit(class_exists("Dompdf\\Dompdf") ? 0 : 1);' \
+    "${SOURCE_DIR}/renderer/vendor/autoload.php"
 fi
 grep -Fqx '# PPFLIGHT_PDF_AGENT_AG_PDF_WRAPPER=1' "${SOURCE_DIR}/ag-pdf"
 grep -Fq 'ag-pdf 状态' "${SOURCE_DIR}/README.md"

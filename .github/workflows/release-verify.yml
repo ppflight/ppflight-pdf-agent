@@ -15,11 +15,68 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
 jobs:
+  platform-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: debian-12
+            image: debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
+          - name: debian-13
+            image: debian:13-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+          - name: ubuntu-22.04
+            image: ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
+          - name: ubuntu-24.04
+            image: ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
+          - name: ubuntu-26.04
+            image: ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
+          - name: centos-stream-9
+            image: quay.io/centos/centos:stream9@sha256:64e5a212e4f2e7b706dbd822968914bb8def7de0a7fdfd3bf248241f8758101c
+          - name: centos-stream-10
+            image: quay.io/centos/centos:stream10@sha256:ad14f7d919c9b9995a236abace06e888d37d6145e048a6ae26770e1f5dc718a8
+          - name: rocky-9
+            image: quay.io/rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f
+          - name: rocky-10
+            image: quay.io/rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834
+          - name: almalinux-9
+            image: almalinux:9@sha256:d2515c769e7b73f95c4fde38c0a505336ff38f14990c0b7253b77060a049a743
+          - name: almalinux-10
+            image: almalinux:10@sha256:cc24bc5b6ac7e284f2f62a07bdaa1b15d3319fdcf46413c6b8fe9fa245068ddd
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: "8.2"
+          extensions: mbstring, xml, gd
+          tools: composer:v2
+      - name: Build locked renderer dependencies
+        run: composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction --no-progress --no-plugins --no-scripts --classmap-authoritative
+      - name: Stage credential-free tracked source
+        run: |
+          smoke_source="$RUNNER_TEMP/pdf-agent-platform-src"
+          mkdir -p "$smoke_source"
+          git archive --format=tar HEAD | tar -C "$smoke_source" -xf -
+          cp -a renderer/vendor "$smoke_source/renderer/vendor"
+      - name: Verify ${{ matrix.name }}
+        env:
+          PLATFORM_IMAGE: ${{ matrix.image }}
+        run: docker run --rm --volume "$RUNNER_TEMP/pdf-agent-platform-src:/src:ro" --workdir /src "$PLATFORM_IMAGE" bash scripts/ci-platform-smoke.sh
+
   verify:
     runs-on: ubuntu-24.04
+    needs: platform-smoke
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -47,7 +104,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends shellcheck nginx-light openssl
-          shellcheck install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag scripts/*.sh
+          shellcheck install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag scripts/*.sh tests/*.sh
+          ./tests/test-platform-support.sh
           ./scripts/verify-nginx-config.sh
       - name: Resolve version
         id: version
@@ -62,22 +120,45 @@ jobs:
       - name: Build and verify immutable release assets
         run: |
           archive="ppflight-pdf-agent-${{ steps.version.outputs.value }}.tar.gz"
-          prefix="ppflight-pdf-agent-${{ steps.version.outputs.value }}/"
-          git archive --format=tar.gz --prefix="$prefix" --output="$archive" HEAD
+          ./scripts/build-release.sh --source . --version '${{ steps.version.outputs.value }}' --output "$archive"
           python3 scripts/verify-release-archive.py "$archive"
           sha256sum "$archive" > "$archive.sha256"
           sha256sum --check "$archive.sha256"
-      - name: Publish GitHub Release for immutable tag
+      - name: Store verified release assets
         if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ppflight-pdf-agent-release-assets
+          path: |
+            ppflight-pdf-agent-${{ steps.version.outputs.value }}.tar.gz
+            ppflight-pdf-agent-${{ steps.version.outputs.value }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    needs: verify
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ppflight-pdf-agent-release-assets
+          path: .
+      - name: Recheck and publish immutable GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.value }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
           archive="ppflight-pdf-agent-${VERSION}.tar.gz"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          sha256sum --check "$archive.sha256"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GH_REPO" >/dev/null 2>&1; then
             echo "release already exists; immutable assets will not be replaced" >&2
             exit 1
           fi
           gh release create "$GITHUB_REF_NAME" "$archive" "$archive.sha256" \
-            --verify-tag --title "PPFlight PDF Agent ${VERSION}" \
-            --notes "PPFlight PDF Agent ${VERSION}。安装前请校验随附的 SHA-256 文件。"
+            --repo "$GH_REPO" --verify-tag --title "PPFlight PDF Agent ${VERSION}" \
+            --notes "PPFlight PDF Agent ${VERSION}。支持 Debian 12/13、Ubuntu 22.04/24.04/26.04 LTS、CentOS Stream 9/10、Rocky Linux 9/10 与 AlmaLinux 9/10；Release 已包含锁定的 PDF 渲染依赖。安装前请校验随附的 SHA-256 文件。"

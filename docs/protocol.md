@@ -82,7 +82,7 @@ All subsequent calls use `Authorization: Bearer <agent_token>`.
 ```json
 {
   "agent_id": "agent-01",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "binding_mode": "singleton",
   "capacity": 1,
   "running_jobs": 0,

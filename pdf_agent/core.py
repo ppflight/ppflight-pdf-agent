@@ -33,7 +33,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _DOWNLOAD_NAME_RE = re.compile(r"^PPFlight-[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.pdf$")
