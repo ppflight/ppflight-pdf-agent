@@ -63,11 +63,36 @@ are supported:
 - Cloudflare Tunnel: publish the supplied loopback Nginx filter on
   `127.0.0.1:9761`, which proxies the same route to `127.0.0.1:9760`.
 
-Tunnel is optional. In direct-DNS mode, keep 9760/9761 closed and expose only
-443; a Cloudflare-proxied DNS record may still provide WAF and rate limits.
-Do not place customer downloads behind a global Cloudflare Access/IP allow-list.
-Agent control is always outbound HTTPS polling. No script runs `ufw`,
-`iptables`, or any cloud firewall API.
+Tunnel is optional. In Tunnel mode `cloudflared` initiates the connection, so
+the Agent VPS needs **no Internet-facing inbound port** for this service.
+`127.0.0.1:9760` and `127.0.0.1:9761` are loopback-only and must never be added
+to UFW, a cloud security group, or a router port-forward. The hostname's Tunnel
+origin is always `http://127.0.0.1:9761`, never the Agent listener.
+
+Tunnel mode requires outbound UDP 7844 preferentially (QUIC) and outbound TCP
+7844 for HTTP/2 fallback, plus the server's existing DNS resolution path
+(UDP/TCP 53). TCP 443 is not a Tunnel transport fallback: use it for the
+Agent's HTTPS connection to `www.ppflight.com`, for GitHub/release downloads
+when installing or updating, and optionally for cloudflared management/update
+endpoints. Allow Tunnel endpoint DNS names rather than pinning Cloudflare edge
+IPs. An SNI-enforcing egress firewall must also allow
+`_v2-origintunneld._tcp.argotunnel.com`, `cftunnel.com`, `h2.cftunnel.com`, and
+`quic.cftunnel.com` on port 7844. Follow Cloudflare's current [Tunnel firewall requirements](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/)
+when creating egress rules; see the Chinese deployment and before/after checks
+in [README.md](../README.md).
+
+Dashboard-managed token Tunnels and locally-managed credential-file Tunnels
+are separate deployment paths. Reuse an existing Dashboard connector by adding
+the download public hostname, or register a new connector with the Dashboard's
+token command. Only locally-managed deployments use the repository's
+`packaging/cloudflared/config.yml.example` and a generated `<UUID>.json`.
+
+In direct-DNS mode, keep 9760/9761 closed and expose only 443; a
+Cloudflare-proxied DNS record may still provide WAF and rate limits. Do not put
+customer downloads behind a global Cloudflare Access or IP allow-list: their
+short-lived signed download grants are the authorization boundary. Agent
+control is always outbound HTTPS polling. No script runs `ufw`, `iptables`, or
+any cloud firewall API.
 
 Never configure a static `root` or `alias` pointing at releases, config, state,
 or artifacts. The only valid public PDF path is an ADMIN-controlled, signed,

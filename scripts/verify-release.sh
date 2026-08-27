@@ -24,7 +24,7 @@ for file in install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag \
   scripts/lib.sh scripts/verify-release-archive.py packaging/systemd/ppflight-pdf-agent.service \
   packaging/config.example.json packaging/nginx/pdf-agent-local.conf.example \
   packaging/nginx/pdf-agent-public-tls.conf.example packaging/cloudflared/config.yml.example \
-  README.md docs/protocol.md; do
+  README.md docs/protocol.md docs/operations.md; do
   [[ -f "${SOURCE_DIR}/${file}" ]] || { echo "missing release file: ${file}" >&2; exit 1; }
 done
 if [[ -f "${SOURCE_DIR}/renderer/composer.json" ]]; then
@@ -73,4 +73,14 @@ for nginx_config in \
 done
 grep -Fq 'listen 443 ssl http2;' "${SOURCE_DIR}/packaging/nginx/pdf-agent-public-tls.conf.example"
 grep -Fq 'limit_req zone=ppflight_pdf_rate' "${SOURCE_DIR}/packaging/nginx/pdf-agent-public-tls.conf.example"
+grep -Fq 'service: http://127.0.0.1:9761' "${SOURCE_DIR}/packaging/cloudflared/config.yml.example"
+grep -Fq 'http_status:404' "${SOURCE_DIR}/packaging/cloudflared/config.yml.example"
+if grep -Eq '^[[:space:]]*service:[[:space:]]*http://127\.0\.0\.1:9760([[:space:]]|$)' \
+  "${SOURCE_DIR}/packaging/cloudflared/config.yml.example"; then
+  echo "Cloudflare Tunnel example must not point at the Agent listener" >&2; exit 1
+fi
+grep -Fq 'limit_except GET HEAD' "${SOURCE_DIR}/packaging/nginx/pdf-agent-local.conf.example"
+grep -Fq 'no Internet-facing inbound port' "${SOURCE_DIR}/docs/operations.md"
+grep -Fq 'Dashboard-managed token Tunnels and locally-managed credential-file Tunnels' "${SOURCE_DIR}/docs/operations.md"
+grep -Fq 'quic.cftunnel.com' "${SOURCE_DIR}/README.md"
 echo "release layout and mandatory local-only hardening checks passed"

@@ -12,6 +12,7 @@ server {
     # Only the signed customer download route may cross the public tunnel.
     # In particular, the Agent's local /healthz is never proxied publicly.
     location ~ "^/v1/download/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" {
+        limit_except GET HEAD { deny all; }
         proxy_pass http://127.0.0.1:9760;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

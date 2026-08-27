@@ -1,13 +1,15 @@
-# Run cloudflared as a separately managed service. The agent remains loopback-only.
+# Locally-managed Tunnel example only. Dashboard-managed token Tunnels store
+# ingress in Cloudflare and do not use this file. Run cloudflared as a separately
+# managed service; it initiates outbound connections, so do not open an
+# Internet-facing port. Keep credentials outside version control.
 tunnel: REPLACE_WITH_TUNNEL_UUID
 credentials-file: /etc/cloudflared/REPLACE_WITH_TUNNEL_UUID.json
 ingress:
   - hostname: pdf-worker.ppflight.com
     # Use the filtering Nginx listener, never the Agent origin directly. This
-    # keeps /healthz and every non-download path local-only.
+    # keeps /healthz and every non-download path local-only. This must remain
+    # 127.0.0.1:9761, while the Agent itself remains 127.0.0.1:9760.
     service: http://127.0.0.1:9761
-    originRequest:
-      noTLSVerify: false
   - service: http_status:404
 
 # Apply WAF and rate limits, but do not put customer signed downloads behind
