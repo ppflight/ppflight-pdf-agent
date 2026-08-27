@@ -20,7 +20,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "${SOURCE_DIR}" && -n "${VERSION}" && -n "${OUTPUT}" ]] || { usage; exit 2; }
-[[ "${VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || { echo "invalid release version" >&2; exit 2; }
+[[ "${VERSION}" =~ ^[A-Za-z0-9][-A-Za-z0-9._+]*$ ]] || { echo "invalid release version" >&2; exit 2; }
 SOURCE_DIR="$(cd -P -- "${SOURCE_DIR}" && pwd)"
 OUTPUT="$(realpath -m -- "${OUTPUT}")"
 [[ -d "$(dirname -- "${OUTPUT}")" ]] || { echo "output directory does not exist" >&2; exit 2; }

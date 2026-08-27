@@ -5,6 +5,22 @@ SOURCE_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib.sh
 source "${SOURCE_DIR}/scripts/lib.sh"
 
+# Keep the hyphen first in the second ERE character class. Some supported
+# remote Bash/locale combinations reject the formerly trailing-hyphen form
+# even though the release value itself is plain ASCII.
+for release_version in 1.0.4 1.0.4-rc.1 v1.0.4 build_2026+08; do
+  [[ "${release_version}" =~ ^[A-Za-z0-9][-A-Za-z0-9._+]*$ ]] || {
+    echo "expected valid release version: ${release_version}" >&2
+    exit 1
+  }
+done
+for release_version in '' .1 /1 '1 2' '1/2' '1?2'; do
+  if [[ "${release_version}" =~ ^[A-Za-z0-9][-A-Za-z0-9._+]*$ ]]; then
+    echo "expected invalid release version" >&2
+    exit 1
+  fi
+done
+
 expect_supported() {
   supported_linux_distribution "$1" "$2" "$3" || {
     echo "expected supported: $1 $2 $3" >&2

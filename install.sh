@@ -45,11 +45,11 @@ python_and_php_ok "${MINIMUM_PHP}" || \
 PHP_BIN="$(fixed_php_binary)" || die "fixed PHP runtime is unavailable"
 
 SOURCE_VERSION="$(python3 "${SOURCE_DIR}/agent.py" version)" || die "cannot read source version"
-[[ "${SOURCE_VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || die "source version is invalid"
+[[ "${SOURCE_VERSION}" =~ ^[A-Za-z0-9][-A-Za-z0-9._+]*$ ]] || die "source version is invalid"
 if [[ -z "${VERSION}" ]]; then
   VERSION="${SOURCE_VERSION}"
 fi
-[[ "${VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || die "invalid release version"
+[[ "${VERSION}" =~ ^[A-Za-z0-9][-A-Za-z0-9._+]*$ ]] || die "invalid release version"
 [[ "${VERSION}" == "${SOURCE_VERSION}" ]] || \
   die "requested version ${VERSION} does not match source version ${SOURCE_VERSION}"
 

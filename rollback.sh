@@ -13,7 +13,7 @@ fi
 [[ $# -eq 1 ]] || { echo "Usage: sudo ./rollback.sh VERSION" >&2; exit 2; }
 require_root
 take_lock
-[[ "${TARGET_VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || die "invalid release version"
+[[ "${TARGET_VERSION}" =~ ^[A-Za-z0-9][-A-Za-z0-9._+]*$ ]] || die "invalid release version"
 TARGET_RELEASE="${RELEASES_DIR}/${TARGET_VERSION}"
 [[ -d "${TARGET_RELEASE}" ]] || die "release not found: ${TARGET_VERSION}"
 PREVIOUS_RELEASE="$(current_release)" || die "no current release"

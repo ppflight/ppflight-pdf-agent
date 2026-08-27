@@ -39,7 +39,7 @@ done
 require_root
 take_lock
 [[ -n "${VERSION}" && -n "${ARCHIVE_URL}" && -n "${SHA256}" ]] || { usage >&2; exit 2; }
-[[ "${VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || die "invalid release version"
+[[ "${VERSION}" =~ ^[A-Za-z0-9][-A-Za-z0-9._+]*$ ]] || die "invalid release version"
 [[ "${SHA256}" =~ ^[A-Fa-f0-9]{64}$ ]] || die "--sha256 must be a SHA-256 digest"
 [[ -z "${SIGNATURE_URL}" || -n "${GPG_KEYRING}" ]] || die "--signature-url requires --gpg-keyring"
 [[ -z "${GPG_KEYRING}" || -n "${SIGNATURE_URL}" ]] || die "--gpg-keyring requires --signature-url"

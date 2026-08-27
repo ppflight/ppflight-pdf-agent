@@ -38,7 +38,7 @@ grep -Fq '"php": ">=8.1"' "${SOURCE_DIR}/renderer/composer.json"
 "${SOURCE_DIR}/tests/test-platform-support.sh" >/dev/null
 
 if [[ -n "${VERSION}" ]]; then
-  [[ "${VERSION}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || {
+  [[ "${VERSION}" =~ ^[A-Za-z0-9][-A-Za-z0-9._+]*$ ]] || {
     echo "invalid immutable release version" >&2; exit 1;
   }
   SOURCE_VERSION="$(python3 "${SOURCE_DIR}/agent.py" version)"

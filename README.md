@@ -46,11 +46,11 @@ CI 在 x86_64 上验证全部发行版；未将其他 CPU 架构列为本版本�
 如果使用 SSH 克隆私有仓库，请先在服务器配置 GitHub SSH Key，然后：
 
 ```bash
-git clone --branch v1.0.3 --depth 1 git@github.com:ppflight/ppflight-pdf-agent.git
+git clone --branch v1.0.4 --depth 1 git@github.com:ppflight/ppflight-pdf-agent.git
 cd ppflight-pdf-agent
 composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction \
   --no-progress --no-plugins --no-scripts --classmap-authoritative
-sudo ./install.sh --version 1.0.3 --install-deps \
+sudo ./install.sh --version 1.0.4 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
@@ -59,17 +59,17 @@ sudo ./install.sh --version 1.0.3 --install-deps \
 ```bash
 gh repo clone ppflight/ppflight-pdf-agent
 cd ppflight-pdf-agent
-git checkout v1.0.3
+git checkout v1.0.4
 composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction \
   --no-progress --no-plugins --no-scripts --classmap-authoritative
-sudo ./install.sh --version 1.0.3 --install-deps \
+sudo ./install.sh --version 1.0.4 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
 安装器会：
 
 1. 创建无登录权限的 `ppflight-pdf` 系统账户；
-2. 安装不可变版本到 `/opt/ppflight-pdf-agent/releases/1.0.3`；
+2. 安装不可变版本到 `/opt/ppflight-pdf-agent/releases/1.0.4`；
 3. 创建 `/etc/ppflight-pdf-agent/config.json`；
 4. 创建并启动 `ppflight-pdf-agent.service`；
 5. 安装中文运维命令 `/usr/local/bin/ag-pdf`。
@@ -81,7 +81,7 @@ Agent 写入的持久磁盘，也可以省略参数并使用源码目录下的 `
 如需使用其他独立磁盘，只能在首次安装时指定：
 
 ```bash
-sudo ./install.sh --version 1.0.3 --install-deps --artifact-dir /srv/ppflight-pdf-artifacts
+sudo ./install.sh --version 1.0.4 --install-deps --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
 ### 方法二：安装 GitHub Release（推荐）
@@ -90,15 +90,15 @@ Release 同时提供压缩包和 SHA-256 文件，并已包含锁定的 PDF 渲�
 
 ```bash
 work_dir="$(mktemp -d)"
-gh release download v1.0.3 \
+gh release download v1.0.4 \
   --repo ppflight/ppflight-pdf-agent \
   --dir "$work_dir" \
-  --pattern 'ppflight-pdf-agent-1.0.3.tar.gz*'
+  --pattern 'ppflight-pdf-agent-1.0.4.tar.gz*'
 cd "$work_dir"
-sha256sum -c ppflight-pdf-agent-1.0.3.tar.gz.sha256
-tar -xzf ppflight-pdf-agent-1.0.3.tar.gz
-cd ppflight-pdf-agent-1.0.3
-sudo ./install.sh --version 1.0.3 --install-deps \
+sha256sum -c ppflight-pdf-agent-1.0.4.tar.gz.sha256
+tar -xzf ppflight-pdf-agent-1.0.4.tar.gz
+cd ppflight-pdf-agent-1.0.4
+sudo ./install.sh --version 1.0.4 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
@@ -377,8 +377,8 @@ systemd 服务继续启用 `NoNewPrivileges`、空 capability 集、严格只读
 仓库提供的签名校验接口。
 
 ```bash
-sudo ./update.sh --version 1.0.3 \
-  --url https://可信下载地址/ppflight-pdf-agent-1.0.3.tar.gz \
+sudo ./update.sh --version 1.0.4 \
+  --url https://可信下载地址/ppflight-pdf-agent-1.0.4.tar.gz \
   --sha256 64位SHA256值
 ```
 
@@ -409,7 +409,7 @@ shellcheck install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag scri
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 php tests/renderer_test.php
 ./tests/test-platform-support.sh
-./scripts/verify-release.sh --source . --version 1.0.3
+./scripts/verify-release.sh --source . --version 1.0.4
 ```
 
 GitHub Actions 会执行 Python 3.9/3.12/3.13/3.14、PHP 8.1/8.2/8.4/8.5、Composer、
