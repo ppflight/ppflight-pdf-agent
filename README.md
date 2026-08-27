@@ -32,10 +32,9 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
 - ADMIN 销售方资料为 `PPFlight digital LLC`、`30 N Gould St Ste N`、
   `Sheridan, WY 82801`、`United States`，网站为 `www.ppflight.com`，支持与页脚邮箱均为
   `support@ppflight.com`，下载根地址为 `https://pdf-worker.ppflight.com`；
-- 验收时 ADMIN 只绑定一个 Agent，心跳版本为 1.0.4，PDF Agent 已启用，本地渲染
-  fallback 保留启用，历史 backfill 已完成。7 张账单的最新 revision 全部 ready；
-  历史 5 条 `processing_failed` 行按不可变审计原则保留，另外 7 条 ready 行是正常
-  backfill 或审计化 retry 的结果；
+- 验收时 ADMIN 只绑定一个 Agent，心跳版本为 1.0.4 且状态新鲜，PDF Agent 已启用，
+  本地渲染 fallback 保留启用，历史 backfill 已完成。当前 10 个 artifact ready，
+  queued/claimed 均为 0；历史 5 条 `processing_failed` revision 按不可变审计原则保留；
 - 主站提供安全修复命令
   `php artisan pdf-agent:retry-artifact <artifact-uuid> --confirm='RETRY ONE PDF ARTIFACT'`。
   它只接受最新的 `failed + processing_failed` revision，校验冻结快照 SHA 后追加一个
@@ -44,6 +43,11 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
   签名 PDF 下载；返回文件的 SHA-256 和大小与主站记录一致。实际 PDF 含 PPFlight
   元数据与官网图标路径、正确销售方/页脚信息，不含 `PPFlight Cloud`，也不含 PDF
   JavaScript、嵌入文件、Launch 或 URI 动作。
+- 主站当前密封版本为 `admin-app-vnext-20260827-payment-agent-closure-r145`。APP 的生成、
+  下载、支付跳转与取消账单入口已经统一，ADMIN 的 PDF Agent / WWW Agent 双页签及其
+  partial 已全部进入密封树；生产回归和 228 条 ADMIN 移动端截图闭环均为 0 failure。
+- Mercury ACH 处于全量暂停状态：启用 gateway/connection 均为 0，且没有 Mercury 定时
+  同步或到期任务。维护 PDF Agent 时不得顺带启用 Mercury。
 
 后续 AI 不应把上述回执当成永久实时状态。先执行 `ag-pdf 检查`、`ag-pdf 统计`，再到
 ADMIN“系统设置 → PDF Agent”核对版本、心跳、绑定、开关和任务数；任何维修都不得打印
