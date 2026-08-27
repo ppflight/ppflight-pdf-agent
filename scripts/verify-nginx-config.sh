@@ -16,6 +16,8 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
 sed \
   -e "s|/etc/letsencrypt/live/pdf-worker.ppflight.com/fullchain.pem|${WORK_DIR}/cert.pem|" \
   -e "s|/etc/letsencrypt/live/pdf-worker.ppflight.com/privkey.pem|${WORK_DIR}/key.pem|" \
+  -e 's|listen 443 ssl http2;|listen 18443 ssl http2;|' \
+  -e 's|listen \[::\]:443 ssl http2;|listen [::]:18443 ssl http2;|' \
   "${SOURCE_DIR}/packaging/nginx/pdf-agent-public-tls.conf.example" >"${WORK_DIR}/public.conf"
 
 printf '%s\n' \
