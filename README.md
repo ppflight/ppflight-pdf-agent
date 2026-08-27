@@ -11,6 +11,44 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
 - 下载必须经过最长 5 分钟的签名链接，不能把 PDF 目录设为静态网站目录。
 - Agent 固定监听 `127.0.0.1:9760`，不可直接暴露到公网。
 
+## 生产交接（下一个 AI 先读这里）
+
+以下是 2026-08-27 完成验收时的脱敏部署回执，不替代实时状态检查：
+
+- 当前公开发行版为
+  [`v1.0.4`](https://github.com/ppflight/ppflight-pdf-agent/releases/tag/v1.0.4)，
+  Release 压缩包 SHA-256 为
+  `b72263a7fd6fff3005ae3acc5a735dcdfa37578c7b348ce1ebcff594c02f830a`；
+- 异地工作目录为 `/www/wwwroot/pdf-worker.ppflight.com`，唯一 PDF 根目录为
+  `/www/wwwroot/pdf-worker.ppflight.com/artifacts`；普通升级不得迁移、清空或另建 PDF
+  目录；
+- Agent 核心只监听 `127.0.0.1:9760`，本机 Nginx 下载过滤层只监听
+  `127.0.0.1:9761`；Cloudflare Dashboard 中唯一 Public Hostname 路由是
+  `pdf-worker.ppflight.com` → `http://127.0.0.1:9761`。不需要、也不允许开放
+  9760/9761 的公网入站端口；
+- `/healthz` 只在 9760 本机健康接口返回 200；9761 和公网 `/healthz` 必须返回
+  404。公网未签名 `/v1/download/...` 也必须返回 404；这两个 404 是安全过滤成功，
+  不是 Tunnel 故障；
+- ADMIN 销售方资料为 `PPFlight digital LLC`、`30 N Gould St Ste N`、
+  `Sheridan, WY 82801`、`United States`，网站为 `www.ppflight.com`，支持与页脚邮箱均为
+  `support@ppflight.com`，下载根地址为 `https://pdf-worker.ppflight.com`；
+- 验收时 ADMIN 只绑定一个 Agent，心跳版本为 1.0.4，PDF Agent 已启用，本地渲染
+  fallback 保留启用，历史 backfill 已完成。7 张账单的最新 revision 全部 ready；
+  历史 5 条 `processing_failed` 行按不可变审计原则保留，另外 7 条 ready 行是正常
+  backfill 或审计化 retry 的结果；
+- 主站提供安全修复命令
+  `php artisan pdf-agent:retry-artifact <artifact-uuid> --confirm='RETRY ONE PDF ARTIFACT'`。
+  它只接受最新的 `failed + processing_failed` revision，校验冻结快照 SHA 后追加一个
+  新 queued revision，并写审计。禁止用 SQL 把 failed 行直接改回 queued；
+- 端到端已验证：APP 所有权鉴权 → 302 私有/no-store/no-referrer 跳转 → Tunnel →
+  签名 PDF 下载；返回文件的 SHA-256 和大小与主站记录一致。实际 PDF 含 PPFlight
+  元数据与官网图标路径、正确销售方/页脚信息，不含 `PPFlight Cloud`，也不含 PDF
+  JavaScript、嵌入文件、Launch 或 URI 动作。
+
+后续 AI 不应把上述回执当成永久实时状态。先执行 `ag-pdf 检查`、`ag-pdf 统计`，再到
+ADMIN“系统设置 → PDF Agent”核对版本、心跳、绑定、开关和任务数；任何维修都不得打印
+绑定码、Agent token、下载 HMAC key 或带 `grant=` 的 URL。
+
 ## 支持环境
 
 - Debian 12、Debian 13；
@@ -43,23 +81,12 @@ CI 在 x86_64 上验证全部发行版；未将其他 CPU 架构列为本版本�
 [Composer 官方下载说明](https://getcomposer.org/download/)。如果只是部署服务器，
 优先使用下方自带依赖、目标机无需 Composer 的 GitHub Release。
 
-如果使用 SSH 克隆私有仓库，请先在服务器配置 GitHub SSH Key，然后：
+仓库已公开，可直接用 HTTPS 克隆，不需要 GitHub 登录：
 
 ```bash
-git clone --branch v1.0.4 --depth 1 git@github.com:ppflight/ppflight-pdf-agent.git
+git clone --branch v1.0.4 --depth 1 \
+  https://github.com/ppflight/ppflight-pdf-agent.git
 cd ppflight-pdf-agent
-composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction \
-  --no-progress --no-plugins --no-scripts --classmap-authoritative
-sudo ./install.sh --version 1.0.4 --install-deps \
-  --artifact-dir /srv/ppflight-pdf-artifacts
-```
-
-如果使用 GitHub CLI，请先执行 `gh auth login`，然后：
-
-```bash
-gh repo clone ppflight/ppflight-pdf-agent
-cd ppflight-pdf-agent
-git checkout v1.0.4
 composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction \
   --no-progress --no-plugins --no-scripts --classmap-authoritative
 sudo ./install.sh --version 1.0.4 --install-deps \
@@ -90,10 +117,12 @@ Release 同时提供压缩包和 SHA-256 文件，并已包含锁定的 PDF 渲�
 
 ```bash
 work_dir="$(mktemp -d)"
-gh release download v1.0.4 \
-  --repo ppflight/ppflight-pdf-agent \
-  --dir "$work_dir" \
-  --pattern 'ppflight-pdf-agent-1.0.4.tar.gz*'
+curl --fail --location --proto '=https' --tlsv1.2 \
+  --output "$work_dir/ppflight-pdf-agent-1.0.4.tar.gz" \
+  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.4/ppflight-pdf-agent-1.0.4.tar.gz
+curl --fail --location --proto '=https' --tlsv1.2 \
+  --output "$work_dir/ppflight-pdf-agent-1.0.4.tar.gz.sha256" \
+  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.4/ppflight-pdf-agent-1.0.4.tar.gz.sha256
 cd "$work_dir"
 sha256sum -c ppflight-pdf-agent-1.0.4.tar.gz.sha256
 tar -xzf ppflight-pdf-agent-1.0.4.tar.gz
@@ -378,8 +407,8 @@ systemd 服务继续启用 `NoNewPrivileges`、空 capability 集、严格只读
 
 ```bash
 sudo ./update.sh --version 1.0.4 \
-  --url https://可信下载地址/ppflight-pdf-agent-1.0.4.tar.gz \
-  --sha256 64位SHA256值
+  --url https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.4/ppflight-pdf-agent-1.0.4.tar.gz \
+  --sha256 b72263a7fd6fff3005ae3acc5a735dcdfa37578c7b348ce1ebcff594c02f830a
 ```
 
 升级安装、启动或健康检查失败时会自动恢复上一个版本。手动回滚：
