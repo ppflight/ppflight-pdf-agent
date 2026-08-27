@@ -33,7 +33,7 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
   `Sheridan, WY 82801`、`United States`，网站为 `www.ppflight.com`，支持与页脚邮箱均为
   `support@ppflight.com`，下载根地址为 `https://pdf-worker.ppflight.com`；
 - 验收时 ADMIN 只绑定一个 Agent，心跳版本为 1.0.4 且状态新鲜，PDF Agent 已启用，
-  本地渲染 fallback 保留启用，历史 backfill 已完成。当前 10 个 artifact ready，
+  主站本地渲染 fallback 已关闭，历史 backfill 已完成。当前 10 个 artifact ready，
   queued/claimed 均为 0；历史 5 条 `processing_failed` revision 按不可变审计原则保留；
 - 主站提供安全修复命令
   `php artisan pdf-agent:retry-artifact <artifact-uuid> --confirm='RETRY ONE PDF ARTIFACT'`。
