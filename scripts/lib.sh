@@ -245,10 +245,17 @@ install_apt_dependencies() {
 
 install_dnf_dependencies() {
   local version_id=$1 minimum_php=$2 major
+  local -a runtime_packages=(
+    ca-certificates findutils grep gzip python3 sed shadow-utils systemd tar util-linux
+  )
   major=${version_id%%.*}
-  dnf install -y --setopt=install_weak_deps=False \
-    ca-certificates coreutils curl findutils grep gzip python3 sed shadow-utils \
-    systemd tar util-linux
+  # Minimal EL images provide curl-minimal and coreutils-single. Do not replace
+  # either with the mutually exclusive full package just to obtain commands
+  # that are already present on a normal host.
+  if ! command -v curl >/dev/null; then
+    runtime_packages+=(curl-minimal)
+  fi
+  dnf install -y --setopt=install_weak_deps=False "${runtime_packages[@]}"
   if php_runtime_ok "${minimum_php}"; then
     return 0
   fi
