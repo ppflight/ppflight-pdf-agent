@@ -1,0 +1,10 @@
+{
+  "admin_url": "https://www.ppflight.com/api/pdf-agent/v1",
+  "artifact_dir": "@ARTIFACT_DIR@",
+  "state_path": "/var/lib/ppflight-pdf-agent/state.json",
+  "db_path": "/var/lib/ppflight-pdf-agent/agent.sqlite3",
+  "cache_dir": "/var/lib/ppflight-pdf-agent/cache",
+  "download_audience": "ppflight-pdf-download",
+  "download_port": 9760,
+  "poll_interval_seconds": 10
+}

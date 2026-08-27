@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# PPFLIGHT_PDF_AGENT_AG_PDF_WRAPPER=1
+set -Eeuo pipefail
+
+APP_NAME=ppflight-pdf-agent
+SERVICE_NAME=${APP_NAME}.service
+CONFIG_DIR=/etc/${APP_NAME}
+INSTALL_ENV=${CONFIG_DIR}/install.env
+APP_ROOT=/opt/${APP_NAME}
+STATE_DIR=/var/lib/${APP_NAME}
+
+usage() {
+  cat <<'EOF'
+用法：ag-pdf [状态]
+      ag-pdf {检查|统计|日志 [journalctl 参数]|绑定 [--code-file 文件]}
+      ag-pdf {服务 启动|服务 停止|服务 重启|版本|路径|帮助}
+
+状态    显示服务、绑定、ADMIN 连接、任务和 PDF 统计（默认）。
+检查    严格检查本地健康状态和 ADMIN 鉴权连接。
+统计    只显示本地绑定、任务、PDF 和磁盘统计。
+日志    显示服务日志，可附加 -n 100 等 journalctl 参数。
+绑定    从标准输入或受保护文件读取一次性绑定码。
+服务    启动、停止或重启 systemd 服务。
+
+兼容英文子命令：status check stats logs bind service version paths help
+EOF
+}
+
+artifact_dir() { sed -n 's/^PDF_AGENT_ARTIFACT_DIR=//p' "${INSTALL_ENV}" 2>/dev/null | head -n 1; }
+current_release() { readlink -f "${APP_ROOT}/current" 2>/dev/null; }
+as_agent() {
+  if [[ ${EUID} -eq 0 ]]; then
+    runuser -u ppflight-pdf -- "$@"
+  else
+    sudo runuser -u ppflight-pdf -- "$@"
+  fi
+}
+as_root() {
+  if [[ ${EUID} -eq 0 ]]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+local_report() {
+  local current
+  current="$(current_release)"
+  [[ -n "${current}" && -x "${current}/.venv/bin/python" ]] || {
+    echo "Agent 版本         未安装"
+    return 1
+  }
+  as_agent "${current}/.venv/bin/python" "${current}/scripts/status-report.py" \
+    --config "${CONFIG_DIR}/config.json"
+}
+
+dashboard() {
+  local active enabled health admin current
+  active="$(systemctl is-active "${SERVICE_NAME}" 2>/dev/null || true)"
+  enabled="$(systemctl is-enabled "${SERVICE_NAME}" 2>/dev/null || true)"
+  current="$(current_release)"
+  health=unavailable
+  if [[ "${active}" == active ]] && curl --fail --silent --max-time 3 \
+      http://127.0.0.1:9760/healthz >/dev/null 2>&1; then
+    health=ok
+  fi
+
+  case "${active}" in active) active=运行中 ;; inactive) active=已停止 ;; failed) active=故障 ;; *) active=${active:-未知} ;; esac
+  case "${enabled}" in enabled) enabled=开机自启 ;; disabled) enabled=未设自启 ;; *) enabled=${enabled:-未知} ;; esac
+  case "${health}" in ok) health=正常 ;; unavailable) health=不可用 ;; esac
+  echo "PPFlight PDF Agent 状态"
+  printf '%-18s %s（%s）\n' "服务" "${active}" "${enabled}"
+  printf '%-18s %s\n' "本地健康检查" "${health}"
+  printf '%-18s %s\n' "当前版本" "${current##*/}"
+  local_report
+
+  if [[ -s "${STATE_DIR}/state.json" && -n "${current}" ]]; then
+    if as_agent timeout 15s "${current}/.venv/bin/python" "${current}/agent.py" \
+        --config "${CONFIG_DIR}/config.json" check >/dev/null 2>&1; then
+      admin=正常
+    else
+      admin="不可达或鉴权失败（运行：ag-pdf 检查）"
+    fi
+  else
+    admin="未绑定"
+  fi
+  printf '%-18s %s\n' "ADMIN 连接" "${admin}"
+}
+
+case "${1:-状态}" in
+  status|状态)
+    dashboard
+    ;;
+  check|检查)
+    systemctl is-active --quiet "${SERVICE_NAME}" || { echo "PDF Agent 服务未运行" >&2; exit 1; }
+    curl --fail --silent --show-error --max-time 3 http://127.0.0.1:9760/healthz >/dev/null
+    echo "本地健康检查：正常"
+    if [[ -s "${STATE_DIR}/state.json" ]]; then
+      current="$(current_release)"
+      if as_agent "${current}/.venv/bin/python" \
+          "${current}/agent.py" --config "${CONFIG_DIR}/config.json" check >/dev/null; then
+        echo "ADMIN 连接：正常"
+      else
+        echo "ADMIN 连接：失败" >&2
+        exit 1
+      fi
+    else
+      echo "绑定状态：未绑定（仅完成本地检查）"
+    fi
+    ;;
+  stats|统计)
+    local_report
+    ;;
+  logs|日志)
+    shift
+    as_root journalctl -u "${SERVICE_NAME}" --no-pager "$@"
+    ;;
+  bind|绑定)
+    shift
+    if [[ ${EUID} -eq 0 ]]; then
+      exec "${APP_ROOT}/current/bind.sh" "$@"
+    fi
+    exec sudo "${APP_ROOT}/current/bind.sh" "$@"
+    ;;
+  service|服务)
+    action=${2:-}
+    case "${action}" in
+      start|启动) as_root systemctl start "${SERVICE_NAME}" ;;
+      stop|停止) as_root systemctl stop "${SERVICE_NAME}" ;;
+      restart|重启) as_root systemctl restart "${SERVICE_NAME}" ;;
+      *) echo "用法：ag-pdf 服务 {启动|停止|重启}" >&2; exit 2 ;;
+    esac
+    ;;
+  version|版本)
+    current_release | xargs -r basename
+    ;;
+  paths|路径)
+    printf '版本目录=%s\n当前版本=%s\n配置文件=%s\n状态目录=%s\nPDF目录=%s\n' \
+      "${APP_ROOT}/releases" "$(current_release || true)" \
+      "${CONFIG_DIR}/config.json" "${STATE_DIR}" "$(artifact_dir)"
+    ;;
+  -h|--help|help|帮助)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

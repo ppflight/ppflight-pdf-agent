@@ -1,0 +1,19 @@
+{
+  "name": "ppflight/invoice-renderer",
+  "description": "Standalone, schema-locked PPFlight invoice PDF renderer",
+  "type": "project",
+  "license": "proprietary",
+  "require": {
+    "php": ">=8.2",
+    "dompdf/dompdf": "~3.1.6"
+  },
+  "autoload": {
+    "psr-4": {
+      "PPFlight\\InvoiceRenderer\\": "src/"
+    }
+  },
+  "config": {
+    "allow-plugins": false,
+    "sort-packages": true
+  }
+}

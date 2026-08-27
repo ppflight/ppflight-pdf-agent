@@ -1,0 +1,15 @@
+# Run cloudflared as a separately managed service. The agent remains loopback-only.
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /etc/cloudflared/REPLACE_WITH_TUNNEL_UUID.json
+ingress:
+  - hostname: pdf-worker.ppflight.com
+    # Use the filtering Nginx listener, never the Agent origin directly. This
+    # keeps /healthz and every non-download path local-only.
+    service: http://127.0.0.1:9761
+    originRequest:
+      noTLSVerify: false
+  - service: http_status:404
+
+# Apply WAF and rate limits, but do not put customer signed downloads behind
+# Cloudflare Access or a global IP allow-list. Do not expose filesystem paths
+# through a static origin. Agent control is outbound HTTPS polling only.

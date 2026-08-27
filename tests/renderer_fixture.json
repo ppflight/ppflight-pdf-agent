@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "locale": "zh_CN",
+  "template_version": "invoice-v1",
+  "invoice": {"display_number": "INV-20260826-1042", "issued_at": "2026-08-26", "due_at": "2026-09-02", "paid_at": "2026-08-26", "status": "paid", "currency": "USD"},
+  "issuer": {"company_name": "PPFlight Digital LLC", "address": ["Wilmington, Delaware"], "website": "www.ppflight.com", "support_email": "support@ppflight.com", "footer_email": "billing@ppflight.com"},
+  "customer": {"company": "Example Networks Ltd.", "name": "Li Wei", "email": "li.wei@example.test", "address": ["1 Example Road", "Shanghai"]},
+  "line_items": [{"description": "KVM instance · LAX", "quantity": 1, "unit_amount": "12.5", "total": "12.5"}],
+  "payments": [{"provider": "Stripe", "reference": "pi_example_1042", "amount": "12.50", "paid_at": "2026-08-26"}],
+  "amounts": {"subtotal": "12.50", "discount": "0", "tax": "0.00", "total": "12.50", "amount_paid": "12.50", "balance_due": "0"}
+}

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# PPFLIGHT_PDF_AGENT_PAG_WRAPPER=1
+set -Eeuo pipefail
+
+# Compatibility alias for installations made before the ag-pdf command was
+# introduced. New documentation and automation should invoke ag-pdf directly.
+if [[ -x /usr/local/bin/ag-pdf ]]; then
+  exec /usr/local/bin/ag-pdf "$@"
+fi
+SOURCE_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "${SOURCE_DIR}/ag-pdf" "$@"
