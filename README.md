@@ -17,11 +17,19 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
 
 - 当前公开发行版为
   [`v1.0.6`](https://github.com/ppflight/ppflight-pdf-agent/releases/tag/v1.0.6)；安装或升级必须使用
-  Release 同页的 `.sha256` 附件校验压缩包；
+  Release 同页的 `.sha256` 附件校验压缩包；官方压缩包 SHA-256 为
+  `fe5040bf907a3dacdb8c26813254666a877c264500dfc6d861922181179fabd0`；
 - v1.0.6 修复生命周期脚本读取 `/etc/os-release` 时覆盖发布版本的问题，并在全部支持的
   Linux 容器中检查版本参数不会被系统的 `VERSION` 字段污染；PDF 摘要区使用固定键/值表格，
   中文和英文的标签右边缘、值起点及间距保持一致，
   明细小计与合计金额共享同一右边缘；CI 使用真实 PDF 的文本坐标检查这些布局约束；
+- v1.0.5 的公开资产按不可变发布原则保留，但其安装器可能被系统的 `VERSION` 字段影响；
+  新安装、升级和故障恢复都应直接使用 v1.0.6 或后继版本，不得重打包或覆盖旧 Release；
+- 2026-08-29 生产节点已通过现有 `update.sh` 直接安装未修改的官方 v1.0.6 归档；
+  `current` 与 `ag-pdf` 均为 1.0.6，systemd active，原有绑定、配置、心跳和自检通过；
+- v1.0.6 标签对应源码提交 `70f77ded2192a023a7e5f70affc90e81ac7cef38`；
+  [主分支 CI](https://github.com/ppflight/ppflight-pdf-agent/actions/runs/33241843313) 与
+  [发行验证及发布](https://github.com/ppflight/ppflight-pdf-agent/actions/runs/33241895898) 均为 success；
 - 异地工作目录为 `/www/wwwroot/pdf-worker.ppflight.com`，唯一 PDF 根目录为
   `/www/wwwroot/pdf-worker.ppflight.com/artifacts`；普通升级不得迁移、清空或另建 PDF
   目录；
@@ -32,12 +40,15 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
 - `/healthz` 只在 9760 本机健康接口返回 200；9761 和公网 `/healthz` 必须返回
   404。公网未签名 `/v1/download/...` 也必须返回 404；这两个 404 是安全过滤成功，
   不是 Tunnel 故障；
+- v1.0.6 生产验收中 Nginx 配置检查、官方 PDF 坐标对齐回归和正式 systemd 沙箱真实渲染
+  均通过；Nginx、Tunnel、防火墙和监听端口均未修改；
 - ADMIN 销售方资料为 `PPFlight digital LLC`、`30 N Gould St Ste N`、
   `Sheridan, WY 82801`、`United States`，网站为 `www.ppflight.com`，支持与页脚邮箱均为
   `support@ppflight.com`，下载根地址为 `https://pdf-worker.ppflight.com`；
 - 验收时 ADMIN 只绑定一个 Agent，心跳版本应与当前发行版一致且状态新鲜，PDF Agent 已启用，
-  主站本地渲染 fallback 已关闭，历史 backfill 已完成。当前 10 个 artifact ready，
-  queued/claimed 均为 0；历史 5 条 `processing_failed` revision 按不可变审计原则保留；
+  主站本地渲染 fallback 已关闭。异地 artifact 目录在升级前后均为 48 份历史 PDF，逐文件
+  SHA-256 全部一致；测试 PDF、夹具、临时目录、transient unit 和校验清单已全部清理，
+  artifact 目录外 PDF 数量为 0。这里的 48 是异地文件系统数量，不代表主站实时队列统计；
 - 主站提供安全修复命令
   `php artisan pdf-agent:retry-artifact <artifact-uuid> --confirm='RETRY ONE PDF ARTIFACT'`。
   它只接受最新的 `failed + processing_failed` revision，校验冻结快照 SHA 后追加一个
@@ -413,13 +424,9 @@ systemd 服务继续启用 `NoNewPrivileges`、空 capability 集、严格只读
 仓库提供的签名校验接口。
 
 ```bash
-release_sha256="$(curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
-  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.6/ppflight-pdf-agent-1.0.6.tar.gz.sha256 \
-  | awk '{print $1}')"
 sudo ./update.sh --version 1.0.6 \
   --url https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.6/ppflight-pdf-agent-1.0.6.tar.gz \
-  --sha256 "$release_sha256"
-unset release_sha256
+  --sha256 fe5040bf907a3dacdb8c26813254666a877c264500dfc6d861922181179fabd0
 ```
 
 升级安装、启动或健康检查失败时会自动恢复上一个版本。手动回滚：
