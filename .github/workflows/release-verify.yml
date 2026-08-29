@@ -103,10 +103,11 @@ jobs:
       - name: Validate scripts and Nginx examples
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck nginx-light openssl
+          sudo apt-get install -y --no-install-recommends shellcheck nginx-light openssl poppler-utils
           shellcheck install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag scripts/*.sh tests/*.sh
           ./tests/test-platform-support.sh
           ./scripts/verify-nginx-config.sh
+          python3 tests/renderer_layout_test.py
       - name: Resolve version
         id: version
         env:

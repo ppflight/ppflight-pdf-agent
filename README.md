@@ -13,12 +13,13 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
 
 ## 生产交接（下一个 AI 先读这里）
 
-以下是 2026-08-27 完成验收时的脱敏部署回执，不替代实时状态检查：
+以下是生产验收时的脱敏部署回执，不替代实时状态检查：
 
 - 当前公开发行版为
-  [`v1.0.4`](https://github.com/ppflight/ppflight-pdf-agent/releases/tag/v1.0.4)，
-  Release 压缩包 SHA-256 为
-  `b72263a7fd6fff3005ae3acc5a735dcdfa37578c7b348ce1ebcff594c02f830a`；
+  [`v1.0.5`](https://github.com/ppflight/ppflight-pdf-agent/releases/tag/v1.0.5)；安装或升级必须使用
+  Release 同页的 `.sha256` 附件校验压缩包；
+- v1.0.5 将摘要区改为固定键/值表格，中文和英文的标签右边缘、值起点及间距保持一致，
+  明细小计与合计金额共享同一右边缘；CI 使用真实 PDF 的文本坐标检查这些布局约束；
 - 异地工作目录为 `/www/wwwroot/pdf-worker.ppflight.com`，唯一 PDF 根目录为
   `/www/wwwroot/pdf-worker.ppflight.com/artifacts`；普通升级不得迁移、清空或另建 PDF
   目录；
@@ -32,7 +33,7 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
 - ADMIN 销售方资料为 `PPFlight digital LLC`、`30 N Gould St Ste N`、
   `Sheridan, WY 82801`、`United States`，网站为 `www.ppflight.com`，支持与页脚邮箱均为
   `support@ppflight.com`，下载根地址为 `https://pdf-worker.ppflight.com`；
-- 验收时 ADMIN 只绑定一个 Agent，心跳版本为 1.0.4 且状态新鲜，PDF Agent 已启用，
+- 验收时 ADMIN 只绑定一个 Agent，心跳版本应与当前发行版一致且状态新鲜，PDF Agent 已启用，
   主站本地渲染 fallback 已关闭，历史 backfill 已完成。当前 10 个 artifact ready，
   queued/claimed 均为 0；历史 5 条 `processing_failed` revision 按不可变审计原则保留；
 - 主站提供安全修复命令
@@ -43,7 +44,7 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
   签名 PDF 下载；返回文件的 SHA-256 和大小与主站记录一致。实际 PDF 含 PPFlight
   元数据与官网图标路径、正确销售方/页脚信息，不含 `PPFlight Cloud`，也不含 PDF
   JavaScript、嵌入文件、Launch 或 URI 动作。
-- 主站当前密封版本为 `admin-app-vnext-20260827-payment-agent-closure-r145`。APP 的生成、
+- 主站最后一次交接确认的密封版本为 `admin-app-vnext-20260828-proxmox-templates-r151`；必须实时核对后再引用。APP 的生成、
   下载、支付跳转与取消账单入口已经统一，ADMIN 的 PDF Agent / WWW Agent 双页签及其
   partial 已全部进入密封树；生产回归和 228 条 ADMIN 移动端截图闭环均为 0 failure。
 - Mercury ACH 处于全量暂停状态：启用 gateway/connection 均为 0，且没有 Mercury 定时
@@ -88,19 +89,19 @@ CI 在 x86_64 上验证全部发行版；未将其他 CPU 架构列为本版本�
 仓库已公开，可直接用 HTTPS 克隆，不需要 GitHub 登录：
 
 ```bash
-git clone --branch v1.0.4 --depth 1 \
+git clone --branch v1.0.5 --depth 1 \
   https://github.com/ppflight/ppflight-pdf-agent.git
 cd ppflight-pdf-agent
 composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction \
   --no-progress --no-plugins --no-scripts --classmap-authoritative
-sudo ./install.sh --version 1.0.4 --install-deps \
+sudo ./install.sh --version 1.0.5 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
 安装器会：
 
 1. 创建无登录权限的 `ppflight-pdf` 系统账户；
-2. 安装不可变版本到 `/opt/ppflight-pdf-agent/releases/1.0.4`；
+2. 安装不可变版本到 `/opt/ppflight-pdf-agent/releases/1.0.5`；
 3. 创建 `/etc/ppflight-pdf-agent/config.json`；
 4. 创建并启动 `ppflight-pdf-agent.service`；
 5. 安装中文运维命令 `/usr/local/bin/ag-pdf`。
@@ -112,7 +113,7 @@ Agent 写入的持久磁盘，也可以省略参数并使用源码目录下的 `
 如需使用其他独立磁盘，只能在首次安装时指定：
 
 ```bash
-sudo ./install.sh --version 1.0.4 --install-deps --artifact-dir /srv/ppflight-pdf-artifacts
+sudo ./install.sh --version 1.0.5 --install-deps --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
 ### 方法二：安装 GitHub Release（推荐）
@@ -122,16 +123,16 @@ Release 同时提供压缩包和 SHA-256 文件，并已包含锁定的 PDF 渲�
 ```bash
 work_dir="$(mktemp -d)"
 curl --fail --location --proto '=https' --tlsv1.2 \
-  --output "$work_dir/ppflight-pdf-agent-1.0.4.tar.gz" \
-  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.4/ppflight-pdf-agent-1.0.4.tar.gz
+  --output "$work_dir/ppflight-pdf-agent-1.0.5.tar.gz" \
+  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.5/ppflight-pdf-agent-1.0.5.tar.gz
 curl --fail --location --proto '=https' --tlsv1.2 \
-  --output "$work_dir/ppflight-pdf-agent-1.0.4.tar.gz.sha256" \
-  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.4/ppflight-pdf-agent-1.0.4.tar.gz.sha256
+  --output "$work_dir/ppflight-pdf-agent-1.0.5.tar.gz.sha256" \
+  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.5/ppflight-pdf-agent-1.0.5.tar.gz.sha256
 cd "$work_dir"
-sha256sum -c ppflight-pdf-agent-1.0.4.tar.gz.sha256
-tar -xzf ppflight-pdf-agent-1.0.4.tar.gz
-cd ppflight-pdf-agent-1.0.4
-sudo ./install.sh --version 1.0.4 --install-deps \
+sha256sum -c ppflight-pdf-agent-1.0.5.tar.gz.sha256
+tar -xzf ppflight-pdf-agent-1.0.5.tar.gz
+cd ppflight-pdf-agent-1.0.5
+sudo ./install.sh --version 1.0.5 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
@@ -410,9 +411,13 @@ systemd 服务继续启用 `NoNewPrivileges`、空 capability 集、严格只读
 仓库提供的签名校验接口。
 
 ```bash
-sudo ./update.sh --version 1.0.4 \
-  --url https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.4/ppflight-pdf-agent-1.0.4.tar.gz \
-  --sha256 b72263a7fd6fff3005ae3acc5a735dcdfa37578c7b348ce1ebcff594c02f830a
+release_sha256="$(curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.5/ppflight-pdf-agent-1.0.5.tar.gz.sha256 \
+  | awk '{print $1}')"
+sudo ./update.sh --version 1.0.5 \
+  --url https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.5/ppflight-pdf-agent-1.0.5.tar.gz \
+  --sha256 "$release_sha256"
+unset release_sha256
 ```
 
 升级安装、启动或健康检查失败时会自动恢复上一个版本。手动回滚：
@@ -441,12 +446,13 @@ sudo ./uninstall.sh --purge
 shellcheck install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag scripts/*.sh
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 php tests/renderer_test.php
+python3 tests/renderer_layout_test.py
 ./tests/test-platform-support.sh
-./scripts/verify-release.sh --source . --version 1.0.4
+./scripts/verify-release.sh --source . --version 1.0.5
 ```
 
 GitHub Actions 会执行 Python 3.9/3.12/3.13/3.14、PHP 8.1/8.2/8.4/8.5、Composer、
-ShellCheck、真实 PDF 渲染，并在每个发行版容器内安装依赖、解析 systemd 单元和两种
+ShellCheck、真实 PDF 渲染、Poppler 坐标对齐回归，并在每个发行版容器内安装依赖、解析 systemd 单元和两种
 Nginx 发布配置。容器镜像按摘要固定；发布资产只从当前 Git commit 的跟踪文件构建，
 并重新按锁文件生成渲染依赖。协议和安全边界详见
 [docs/protocol.md](docs/protocol.md) 与 [docs/operations.md](docs/operations.md)。

@@ -48,6 +48,9 @@ jobs:
           composer validate --working-dir=renderer --strict --no-check-publish
           composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction --no-progress --no-plugins --no-scripts --classmap-authoritative
           composer audit --working-dir=renderer --locked --no-interaction --no-ansi
+      - name: Install PDF coordinate checker
+        if: matrix.php-version == '8.2'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
       - name: Lint PHP source
         run: |
           find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -r -n1 php -l
@@ -55,6 +58,7 @@ jobs:
         run: |
           php tests/renderer_test.php
           python3 -W error::ResourceWarning -m unittest tests.test_agent_core.AgentCoreTests.test_fixed_renderer_writes_a_real_ppflight_prefixed_pdf -v
+          if [ "${{ matrix.php-version }}" = "8.2" ]; then python3 tests/renderer_layout_test.py; fi
       - name: Build immutable release with bundled renderer dependencies
         if: matrix.php-version == '8.2'
         run: |

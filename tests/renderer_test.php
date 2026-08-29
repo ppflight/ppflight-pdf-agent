@@ -123,6 +123,18 @@ try {
     expect(!str_contains($html, 'http://') && !str_contains($html, 'https://'), 'Fixed template has an external URL.');
     expect(!str_contains($html, 'PPFlight Cloud'), 'Fixed brand must never say PPFlight Cloud.');
     expect(str_contains($html, 'class="header"') && str_contains($html, 'background:#e7e5e4') && str_contains($html, '<img class="brand-mark" src="data:image/svg+xml;base64,'), 'Accepted grey A4 invoice layout or verified brand mark image is missing.');
+    expect(str_contains($html, '<body class="locale-zh">'), 'Chinese invoice body does not select the fixed Chinese layout.');
+    expect(substr_count($html, '<table class="summary-fields">') === 2, 'Invoice summary does not use two explicit key/value tables.');
+    expect(substr_count($html, 'class="summary-key"') === 6 && substr_count($html, 'class="summary-value"') === 6, 'Invoice summary does not contain six aligned key/value rows.');
+    expect(str_contains($html, '<col class="items-description-col"><col class="items-units-col"><col class="items-money-col"><col class="items-money-col">'), 'Invoice items do not use the fixed four-column grid.');
+    expect(str_contains($html, '<col class="totals-label-col"><col class="totals-value-col">'), 'Invoice totals do not use the fixed two-column grid.');
+    expect(str_contains($html, '.summary{margin-top:25px;table-layout:fixed}') && str_contains($html, '.summary-key{color:#52525b;font-weight:normal;text-align:right;padding-right:12px!important;white-space:nowrap}') && str_contains($html, '.summary-value{color:#18181b;text-align:left;overflow-wrap:anywhere;word-wrap:break-word}'), 'Summary columns do not have fixed, overflow-safe alignment rules.');
+    expect(str_contains($html, '.totals td:last-child{padding-right:8px;text-align:right;white-space:nowrap}'), 'Totals values do not share the item-table right edge.');
+    expect(!str_contains($html, 'class="label"'), 'Legacy inline summary labels remain in the template.');
+    $englishSnapshot = $xss;
+    $englishSnapshot['locale'] = 'en_US';
+    $englishHtml = $htmlMethod->invoke($renderer, $englishSnapshot);
+    expect(str_contains($englishHtml, '<body class="locale-en">') && str_contains($englishHtml, '>Payment due</th>') && str_contains($englishHtml, '>Paid at</th>'), 'English invoice does not use the fixed English summary layout.');
     expect(!str_contains($html, '#35c8df') && !str_contains(file_get_contents(ROOT . '/renderer/src/InvoiceRenderer.php'), 'date('), 'Renderer contains non-snapshot visual or runtime content.');
     putenv('PPFLIGHT_CJK_FONT_SHA256=' . str_repeat('0', 64));
     $fontPath = new ReflectionMethod($renderer, 'fontPath');
