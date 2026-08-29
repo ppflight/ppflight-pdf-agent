@@ -16,9 +16,11 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
 以下是生产验收时的脱敏部署回执，不替代实时状态检查：
 
 - 当前公开发行版为
-  [`v1.0.5`](https://github.com/ppflight/ppflight-pdf-agent/releases/tag/v1.0.5)；安装或升级必须使用
+  [`v1.0.6`](https://github.com/ppflight/ppflight-pdf-agent/releases/tag/v1.0.6)；安装或升级必须使用
   Release 同页的 `.sha256` 附件校验压缩包；
-- v1.0.5 将摘要区改为固定键/值表格，中文和英文的标签右边缘、值起点及间距保持一致，
+- v1.0.6 修复生命周期脚本读取 `/etc/os-release` 时覆盖发布版本的问题，并在全部支持的
+  Linux 容器中检查版本参数不会被系统的 `VERSION` 字段污染；PDF 摘要区使用固定键/值表格，
+  中文和英文的标签右边缘、值起点及间距保持一致，
   明细小计与合计金额共享同一右边缘；CI 使用真实 PDF 的文本坐标检查这些布局约束；
 - 异地工作目录为 `/www/wwwroot/pdf-worker.ppflight.com`，唯一 PDF 根目录为
   `/www/wwwroot/pdf-worker.ppflight.com/artifacts`；普通升级不得迁移、清空或另建 PDF
@@ -89,19 +91,19 @@ CI 在 x86_64 上验证全部发行版；未将其他 CPU 架构列为本版本�
 仓库已公开，可直接用 HTTPS 克隆，不需要 GitHub 登录：
 
 ```bash
-git clone --branch v1.0.5 --depth 1 \
+git clone --branch v1.0.6 --depth 1 \
   https://github.com/ppflight/ppflight-pdf-agent.git
 cd ppflight-pdf-agent
 composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction \
   --no-progress --no-plugins --no-scripts --classmap-authoritative
-sudo ./install.sh --version 1.0.5 --install-deps \
+sudo ./install.sh --version 1.0.6 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
 安装器会：
 
 1. 创建无登录权限的 `ppflight-pdf` 系统账户；
-2. 安装不可变版本到 `/opt/ppflight-pdf-agent/releases/1.0.5`；
+2. 安装不可变版本到 `/opt/ppflight-pdf-agent/releases/1.0.6`；
 3. 创建 `/etc/ppflight-pdf-agent/config.json`；
 4. 创建并启动 `ppflight-pdf-agent.service`；
 5. 安装中文运维命令 `/usr/local/bin/ag-pdf`。
@@ -113,7 +115,7 @@ Agent 写入的持久磁盘，也可以省略参数并使用源码目录下的 `
 如需使用其他独立磁盘，只能在首次安装时指定：
 
 ```bash
-sudo ./install.sh --version 1.0.5 --install-deps --artifact-dir /srv/ppflight-pdf-artifacts
+sudo ./install.sh --version 1.0.6 --install-deps --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
 ### 方法二：安装 GitHub Release（推荐）
@@ -123,16 +125,16 @@ Release 同时提供压缩包和 SHA-256 文件，并已包含锁定的 PDF 渲�
 ```bash
 work_dir="$(mktemp -d)"
 curl --fail --location --proto '=https' --tlsv1.2 \
-  --output "$work_dir/ppflight-pdf-agent-1.0.5.tar.gz" \
-  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.5/ppflight-pdf-agent-1.0.5.tar.gz
+  --output "$work_dir/ppflight-pdf-agent-1.0.6.tar.gz" \
+  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.6/ppflight-pdf-agent-1.0.6.tar.gz
 curl --fail --location --proto '=https' --tlsv1.2 \
-  --output "$work_dir/ppflight-pdf-agent-1.0.5.tar.gz.sha256" \
-  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.5/ppflight-pdf-agent-1.0.5.tar.gz.sha256
+  --output "$work_dir/ppflight-pdf-agent-1.0.6.tar.gz.sha256" \
+  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.6/ppflight-pdf-agent-1.0.6.tar.gz.sha256
 cd "$work_dir"
-sha256sum -c ppflight-pdf-agent-1.0.5.tar.gz.sha256
-tar -xzf ppflight-pdf-agent-1.0.5.tar.gz
-cd ppflight-pdf-agent-1.0.5
-sudo ./install.sh --version 1.0.5 --install-deps \
+sha256sum -c ppflight-pdf-agent-1.0.6.tar.gz.sha256
+tar -xzf ppflight-pdf-agent-1.0.6.tar.gz
+cd ppflight-pdf-agent-1.0.6
+sudo ./install.sh --version 1.0.6 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
@@ -412,10 +414,10 @@ systemd 服务继续启用 `NoNewPrivileges`、空 capability 集、严格只读
 
 ```bash
 release_sha256="$(curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
-  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.5/ppflight-pdf-agent-1.0.5.tar.gz.sha256 \
+  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.6/ppflight-pdf-agent-1.0.6.tar.gz.sha256 \
   | awk '{print $1}')"
-sudo ./update.sh --version 1.0.5 \
-  --url https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.5/ppflight-pdf-agent-1.0.5.tar.gz \
+sudo ./update.sh --version 1.0.6 \
+  --url https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.6/ppflight-pdf-agent-1.0.6.tar.gz \
   --sha256 "$release_sha256"
 unset release_sha256
 ```
@@ -448,7 +450,7 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 php tests/renderer_test.php
 python3 tests/renderer_layout_test.py
 ./tests/test-platform-support.sh
-./scripts/verify-release.sh --source . --version 1.0.5
+./scripts/verify-release.sh --source . --version 1.0.6
 ```
 
 GitHub Actions 会执行 Python 3.9/3.12/3.13/3.14、PHP 8.1/8.2/8.4/8.5、Composer、

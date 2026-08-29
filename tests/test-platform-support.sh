@@ -5,6 +5,32 @@ SOURCE_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib.sh
 source "${SOURCE_DIR}/scripts/lib.sh"
 
+# Sourcing /etc/os-release must never overwrite the immutable version parsed
+# by install.sh or update.sh. Debian and Ubuntu both define their own VERSION
+# value, which previously escaped these helpers into the lifecycle caller.
+VERSION='ppflight-release-version-sentinel'
+ID='ppflight-id-sentinel'
+VERSION_ID='ppflight-version-id-sentinel'
+NAME='ppflight-name-sentinel'
+assert_os_release_scope_preserved() {
+  [[ "${VERSION}" == 'ppflight-release-version-sentinel' ]]
+  [[ "${ID}" == 'ppflight-id-sentinel' ]]
+  [[ "${VERSION_ID}" == 'ppflight-version-id-sentinel' ]]
+  [[ "${NAME}" == 'ppflight-name-sentinel' ]]
+}
+require_linux_distribution
+assert_os_release_scope_preserved
+current_required_php_version >/dev/null
+assert_os_release_scope_preserved
+(
+  install_apt_dependencies() { :; }
+  install_dnf_dependencies() { :; }
+  install_dependencies
+  assert_os_release_scope_preserved
+)
+unset -f assert_os_release_scope_preserved
+unset VERSION ID VERSION_ID NAME
+
 # Keep the hyphen first in the second ERE character class. Some supported
 # remote Bash/locale combinations reject the formerly trailing-hyphen form
 # even though the release value itself is plain ASCII.

@@ -5,10 +5,17 @@ SOURCE_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib.sh
 source "${SOURCE_DIR}/scripts/lib.sh"
 
+VERSION='ppflight-release-version-sentinel'
 require_root
 require_linux_distribution
+[[ "${VERSION}" == 'ppflight-release-version-sentinel' ]] || \
+  die "distribution check overwrote the lifecycle release version"
 install_dependencies
+[[ "${VERSION}" == 'ppflight-release-version-sentinel' ]] || \
+  die "dependency installation overwrote the lifecycle release version"
 PLATFORM_MINIMUM_PHP="$(current_required_php_version)" || die "cannot resolve the PHP policy"
+[[ "${VERSION}" == 'ppflight-release-version-sentinel' ]] || \
+  die "PHP policy resolution overwrote the lifecycle release version"
 python_and_php_ok "${PLATFORM_MINIMUM_PHP}" || die "installed Python/PHP runtime failed validation"
 for required_command in \
   curl find flock getent groupadd gzip realpath runuser sed stat systemctl \
@@ -39,12 +46,17 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest \
 
 # Publication is optional at install time, but every documented standard-Nginx
 # platform must parse both the Tunnel filter and direct-DNS TLS examples.
-PLATFORM_ID=''
-PLATFORM_VERSION=''
-# shellcheck disable=SC1091
-. /etc/os-release
-PLATFORM_ID=${ID:-unknown}
-PLATFORM_VERSION=${VERSION_ID:-unknown}
+read -r PLATFORM_ID PLATFORM_VERSION < <(
+  (
+    ID=''
+    VERSION_ID=''
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    printf '%s %s\n' "${ID:-unknown}" "${VERSION_ID:-unknown}"
+  )
+)
+[[ "${VERSION}" == 'ppflight-release-version-sentinel' ]] || \
+  die "platform identity read overwrote the lifecycle release version"
 PLATFORM_PACKAGE_FAMILY="$(distribution_package_family "${PLATFORM_ID}")"
 case "${PLATFORM_PACKAGE_FAMILY}" in
   apt) apt-get install -y --no-install-recommends nginx openssl ;;

@@ -75,7 +75,10 @@ required_php_version_for_distribution() {
 
 current_required_php_version() {
   [[ -r /etc/os-release ]] || return 1
-  local ID='' VERSION_ID='' NAME=''
+  # /etc/os-release defines VERSION as a human-readable operating-system
+  # version. Keep it local so lifecycle callers do not lose their immutable
+  # release VERSION while this helper resolves the PHP policy.
+  local ID='' VERSION='' VERSION_ID='' NAME=''
   # shellcheck disable=SC1091
   . /etc/os-release
   required_php_version_for_distribution "${ID:-}" "${VERSION_ID:-}"
@@ -83,7 +86,7 @@ current_required_php_version() {
 
 require_linux_distribution() {
   [[ -r /etc/os-release ]] || die "a supported Debian, Ubuntu, CentOS Stream, Rocky Linux or AlmaLinux release is required"
-  local ID='' VERSION_ID='' NAME=''
+  local ID='' VERSION='' VERSION_ID='' NAME=''
   # shellcheck disable=SC1091
   . /etc/os-release
   supported_linux_distribution "${ID:-}" "${VERSION_ID:-}" "${NAME:-}" || \
@@ -278,7 +281,9 @@ install_dnf_dependencies() {
 
 install_dependencies() {
   require_linux_distribution
-  local ID='' VERSION_ID='' NAME='' package_family minimum_php
+  # VERSION is intentionally shadowed because /etc/os-release assigns it.
+  # shellcheck disable=SC2034
+  local ID='' VERSION='' VERSION_ID='' NAME='' package_family minimum_php
   # shellcheck disable=SC1091
   . /etc/os-release
   package_family="$(distribution_package_family "${ID:-}")" || die "unsupported package manager family"
