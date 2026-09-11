@@ -161,9 +161,20 @@ final class InvoiceRenderer
         $issuer = $snapshot['issuer'];
         $customer = $snapshot['customer'];
         $amounts = $snapshot['amounts'];
+        $amountRefunded = $amounts['amount_refunded'] ?? '0';
         $currency = $this->e($invoice['currency']);
         $label = static fn (string $enValue, string $zhValue): string => $en ? $enValue : $zhValue;
         $value = static fn (?string $input): string => $input === null ? '—' : $input;
+        $status = strtolower($invoice['status']);
+        $refundedCents = $this->amountCents($amountRefunded);
+        $totalCents = $this->amountCents($amounts['total']);
+        $closed = in_array($status, ['void', 'cancelled', 'canceled'], true);
+        $closedNotice = $closed
+            ? '<tr class="closed-notice"><td colspan="2">' . $label('Closed — no payment due', '已关闭，无需付款') . '</td></tr>'
+            : '';
+        $refundedRow = $refundedCents > 0 || $status === 'refunded'
+            ? '<tr><td>' . $label('Refunded', '已退款') . '</td><td>' . $currency . ' ' . $this->money($amountRefunded) . '</td></tr>'
+            : '';
 
         $lineRows = '';
         foreach ($snapshot['line_items'] as $item) {
@@ -212,7 +223,7 @@ final class InvoiceRenderer
             [$label('Payment due', '付款截止'), $this->e($value($invoice['due_at']))],
         ]);
         $rightSummary = $summaryFields([
-            [$label('Status', '状态'), $this->e($invoice['status'])],
+            [$label('Status', '状态'), $this->e($this->localizedStatus($status, $totalCents, $refundedCents, $en))],
             [$label('Currency', '币种'), $currency],
             [$label('Paid at', '付款时间'), $this->e($value($invoice['paid_at']))],
         ]);
@@ -222,14 +233,14 @@ final class InvoiceRenderer
             . '<table class="summary"><tr><td class="summary-half">' . $leftSummary . '</td><td class="summary-half summary-half-right">' . $rightSummary . '</td></tr></table>'
             . '<table class="parties"><tr><td><div class="section-label">' . $label('FROM', '开票方') . '</div>' . $fromLines . '</td><td><div class="section-label">' . $label('BILL TO', '收票方') . '</div>' . $billLines . '</td></tr></table>'
             . '<table class="items"><colgroup><col class="items-description-col"><col class="items-units-col"><col class="items-money-col"><col class="items-money-col"></colgroup><thead><tr><th>' . $label('DESCRIPTION', '项目说明') . '</th><th>' . $label('UNITS', '数量') . '</th><th>' . $label('UNIT COST', '单价') . '</th><th>' . $label('LINE TOTAL', '小计') . '</th></tr></thead><tbody>' . $lineRows . '</tbody></table>'
-            . '<table class="totals"><colgroup><col class="totals-label-col"><col class="totals-value-col"></colgroup><tr><td>' . $label('Subtotal', '税前金额') . '</td><td>' . $currency . ' ' . $this->money($amounts['subtotal']) . '</td></tr><tr><td>' . $label('Discount', '优惠') . '</td><td>' . $currency . ' ' . $this->money($amounts['discount']) . '</td></tr><tr><td>' . $label('Tax', '税费') . '</td><td>' . $currency . ' ' . $this->money($amounts['tax']) . '</td></tr><tr><td>' . $label('Total', '账单总额') . '</td><td>' . $currency . ' ' . $this->money($amounts['total']) . '</td></tr><tr><td>' . $label('Paid', '已支付') . '</td><td>' . $currency . ' ' . $this->money($amounts['amount_paid']) . '</td></tr><tr class="balance"><td>' . $label('BALANCE DUE', '剩余应付') . '</td><td>' . $currency . ' ' . $this->money($amounts['balance_due']) . '</td></tr></table>'
+            . '<table class="totals"><colgroup><col class="totals-label-col"><col class="totals-value-col"></colgroup><tr><td>' . $label('Subtotal', '税前金额') . '</td><td>' . $currency . ' ' . $this->money($amounts['subtotal']) . '</td></tr><tr><td>' . $label('Discount', '优惠') . '</td><td>' . $currency . ' ' . $this->money($amounts['discount']) . '</td></tr><tr><td>' . $label('Tax', '税费') . '</td><td>' . $currency . ' ' . $this->money($amounts['tax']) . '</td></tr><tr><td>' . $label('Total', '账单总额') . '</td><td>' . $currency . ' ' . $this->money($amounts['total']) . '</td></tr><tr><td>' . $label('Paid', '已支付') . '</td><td>' . $currency . ' ' . $this->money($amounts['amount_paid']) . '</td></tr>' . $refundedRow . '<tr class="balance"><td>' . $label('BALANCE DUE', '剩余应付') . '</td><td>' . $currency . ' ' . $this->money($amounts['balance_due']) . '</td></tr>' . $closedNotice . '</table>'
             . $payments
             . '<footer class="footer"><table class="footer-grid"><tr><td>' . $this->e($issuer['footer_email']) . '</td><td>' . $label('Prepared by PPFlight', '由 PPFlight 生成') . '<br>' . $this->e($invoice['display_number']) . '</td></tr></table></footer></body></html>';
     }
 
     private function css(): string
     {
-        return '@page{margin:16mm 15mm 19mm}*{box-sizing:border-box}body{margin:0;color:#18181b;font-family:"' . self::FONT_FAMILY . '",sans-serif;font-size:10pt;line-height:1.45}.latin{font-family:DejaVu Sans,sans-serif}.header,.summary,.parties,.footer-grid{width:100%;border-collapse:collapse}.header td{padding:0;vertical-align:middle}.brand{width:58%;white-space:nowrap}.brand-mark{width:19px;height:24px;margin-right:8px;vertical-align:middle;color:#111827}.brand-name{color:#111827;font-family:DejaVu Sans,sans-serif;font-size:18pt;font-weight:bold;vertical-align:middle}.invoice-title{font-family:DejaVu Sans,sans-serif;font-size:25pt;font-weight:normal;letter-spacing:2.5pt;text-align:right}.summary{margin-top:25px;table-layout:fixed}.summary-half{width:50%;padding:0;vertical-align:top}.summary-half-right{padding-left:22px}.summary-fields{width:100%;border-collapse:collapse;table-layout:fixed}.summary-key-col{width:92px}.locale-zh .summary-key-col{width:72px}.summary-fields th,.summary-fields td{height:20px;padding:0 0 4px;line-height:16px;vertical-align:top}.summary-key{color:#52525b;font-weight:normal;text-align:right;padding-right:12px!important;white-space:nowrap}.summary-value{color:#18181b;text-align:left;overflow-wrap:anywhere;word-wrap:break-word}.parties{margin-top:24px}.parties td{width:50%;padding:0;vertical-align:top}.parties td:nth-child(2){padding-left:22px}.section-label{margin-bottom:12px;font-size:9pt;font-weight:normal;letter-spacing:.25pt}.party-line{min-height:16px}.items{width:100%;margin-top:34px;border-collapse:collapse;table-layout:fixed}.items-description-col{width:55%}.items-units-col{width:11%}.items-money-col{width:17%}.items thead{display:table-header-group}.items th{padding:9px 8px;background:#e7e5e4;font-size:8.5pt;font-weight:normal;text-align:left}.items td{padding:10px 8px;border-bottom:1px solid #e4e4e7;vertical-align:top;overflow-wrap:anywhere}.items th:nth-child(2),.items td:nth-child(2),.items th:nth-child(3),.items td:nth-child(3),.items th:nth-child(4),.items td:nth-child(4){text-align:right}.empty{color:#71717a}.totals{width:46%;margin:18px 0 0 auto;border-collapse:collapse;table-layout:fixed}.totals-label-col{width:52%}.totals-value-col{width:48%}.totals td{padding:2px 10px}.totals td:last-child{padding-right:8px;text-align:right;white-space:nowrap}.totals .balance td{padding-top:8px;padding-bottom:8px;border-top:1.5px solid #18181b;border-bottom:1.5px solid #18181b}.totals .balance td:last-child{font-family:DejaVu Sans,sans-serif;font-weight:bold}.payments{margin-top:25px;page-break-inside:avoid}.payments-title{margin-bottom:6px;font-size:9pt;font-weight:normal}.payment{padding:5px 0;border-bottom:1px solid #e4e4e7;font-size:8.5pt;word-wrap:break-word}.footer{position:fixed;right:0;bottom:-11mm;left:0;color:#71717a;font-size:8.5pt}.footer-grid td{width:50%;padding:0;vertical-align:bottom}.footer-grid td:last-child{text-align:right}';
+        return '@page{margin:16mm 15mm 19mm}*{box-sizing:border-box}body{margin:0;color:#18181b;font-family:"' . self::FONT_FAMILY . '",sans-serif;font-size:10pt;line-height:1.45}.latin{font-family:DejaVu Sans,sans-serif}.header,.summary,.parties,.footer-grid{width:100%;border-collapse:collapse}.header td{padding:0;vertical-align:middle}.brand{width:58%;white-space:nowrap}.brand-mark{width:19px;height:24px;margin-right:8px;vertical-align:middle;color:#111827}.brand-name{color:#111827;font-family:DejaVu Sans,sans-serif;font-size:18pt;font-weight:bold;vertical-align:middle}.invoice-title{font-family:DejaVu Sans,sans-serif;font-size:25pt;font-weight:normal;letter-spacing:2.5pt;text-align:right}.summary{margin-top:25px;table-layout:fixed}.summary-half{width:50%;padding:0;vertical-align:top}.summary-half-right{padding-left:22px}.summary-fields{width:100%;border-collapse:collapse;table-layout:fixed}.summary-key-col{width:92px}.locale-zh .summary-key-col{width:72px}.summary-fields th,.summary-fields td{height:20px;padding:0 0 4px;line-height:16px;vertical-align:top}.summary-key{color:#52525b;font-weight:normal;text-align:right;padding-right:12px!important;white-space:nowrap}.summary-value{color:#18181b;text-align:left;overflow-wrap:anywhere;word-wrap:break-word}.parties{margin-top:24px}.parties td{width:50%;padding:0;vertical-align:top}.parties td:nth-child(2){padding-left:22px}.section-label{margin-bottom:12px;font-size:9pt;font-weight:normal;letter-spacing:.25pt}.party-line{min-height:16px}.items{width:100%;margin-top:34px;border-collapse:collapse;table-layout:fixed}.items-description-col{width:55%}.items-units-col{width:11%}.items-money-col{width:17%}.items thead{display:table-header-group}.items th{padding:9px 8px;background:#e7e5e4;font-size:8.5pt;font-weight:normal;text-align:left}.items td{padding:10px 8px;border-bottom:1px solid #e4e4e7;vertical-align:top;overflow-wrap:anywhere}.items th:nth-child(2),.items td:nth-child(2),.items th:nth-child(3),.items td:nth-child(3),.items th:nth-child(4),.items td:nth-child(4){text-align:right}.empty{color:#71717a}.totals{width:46%;margin:18px 0 0 auto;border-collapse:collapse;table-layout:fixed}.totals-label-col{width:52%}.totals-value-col{width:48%}.totals td{padding:2px 10px}.totals td:last-child{padding-right:8px;text-align:right;white-space:nowrap}.totals .balance td{padding-top:8px;padding-bottom:8px;border-top:1.5px solid #18181b;border-bottom:1.5px solid #18181b}.totals .balance td:last-child{font-family:DejaVu Sans,sans-serif;font-weight:bold}.totals .closed-notice td{padding-top:7px;padding-bottom:0;color:#52525b;text-align:left;white-space:normal}.payments{margin-top:25px;page-break-inside:avoid}.payments-title{margin-bottom:6px;font-size:9pt;font-weight:normal}.payment{padding:5px 0;border-bottom:1px solid #e4e4e7;font-size:8.5pt;word-wrap:break-word}.footer{position:fixed;right:0;bottom:-11mm;left:0;color:#71717a;font-size:8.5pt}.footer-grid td{width:50%;padding:0;vertical-align:bottom}.footer-grid td:last-child{text-align:right}';
     }
 
     /** @param mixed $value */
@@ -244,5 +255,35 @@ final class InvoiceRenderer
         $amount = ltrim($amount, '-');
         [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
         return ($negative ? '-' : '') . $whole . '.' . str_pad($fraction, 2, '0');
+    }
+
+    private function amountCents(string $amount): int
+    {
+        $negative = str_starts_with($amount, '-');
+        $amount = ltrim($amount, '-');
+        [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
+        $cents = ((int) $whole * 100) + (int) str_pad($fraction, 2, '0');
+
+        return $negative ? -$cents : $cents;
+    }
+
+    private function localizedStatus(string $status, int $totalCents, int $refundedCents, bool $en): string
+    {
+        if (in_array($status, ['void', 'cancelled', 'canceled'], true)) {
+            return $en ? 'Closed' : '已关闭';
+        }
+        if ($refundedCents > 0 && $refundedCents < $totalCents) {
+            return $en ? 'Partially refunded' : '部分退款';
+        }
+        if ($status === 'refunded' || ($refundedCents > 0 && $refundedCents >= $totalCents)) {
+            return $en ? 'Refunded' : '已退款';
+        }
+
+        return match ($status) {
+            'open' => $en ? 'Payment due' : '待付款',
+            'paid' => $en ? 'Paid' : '已支付',
+            'partially_paid' => $en ? 'Partially paid' : '部分付款',
+            default => $status,
+        };
     }
 }

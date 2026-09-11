@@ -67,6 +67,15 @@ function decompressedPdfStreams(string $pdf): string
 
 $snapshot = fixture();
 validate($snapshot);
+$refundSchema = $snapshot;
+$refundSchema['template_version'] = 'invoice-v2';
+$refundSchema['amounts']['amount_refunded'] = '0.00';
+validate($refundSchema);
+$refundSchema['amounts']['amount_refunded'] = 'not-money';
+rejects(static fn () => validate($refundSchema), 'Invalid optional refunded amount was accepted.');
+$unsupportedTemplate = $snapshot;
+$unsupportedTemplate['template_version'] = 'invoice-v3';
+rejects(static fn () => validate($unsupportedTemplate), 'Unsupported template version was accepted.');
 $invalidDisplay = $snapshot;
 $invalidDisplay['invoice']['display_number'] = 'PPFlight Cloud';
 rejects(static fn () => validate($invalidDisplay), 'Unsafe invoice display number was accepted.');
@@ -135,6 +144,40 @@ try {
     $englishSnapshot['locale'] = 'en_US';
     $englishHtml = $htmlMethod->invoke($renderer, $englishSnapshot);
     expect(str_contains($englishHtml, '<body class="locale-en">') && str_contains($englishHtml, '>Payment due</th>') && str_contains($englishHtml, '>Paid at</th>'), 'English invoice does not use the fixed English summary layout.');
+    $localizedStatuses = [
+        'open' => ['待付款', 'Payment due'],
+        'paid' => ['已支付', 'Paid'],
+        'partially_paid' => ['部分付款', 'Partially paid'],
+        'void' => ['已关闭', 'Closed'],
+        'refunded' => ['已退款', 'Refunded'],
+    ];
+    foreach ($localizedStatuses as $status => [$zh, $en]) {
+        $localized = $xss;
+        $localized['invoice']['status'] = $status;
+        expect(str_contains($htmlMethod->invoke($renderer, $localized), '>' . $zh . '</td>'), 'Chinese invoice status was not localized for ' . $status . '.');
+        $localized['locale'] = 'en_US';
+        expect(str_contains($htmlMethod->invoke($renderer, $localized), '>' . $en . '</td>'), 'English invoice status was not localized for ' . $status . '.');
+    }
+    $closedZh = $xss;
+    $closedZh['amounts']['total'] = '10.00';
+    $closedZh['amounts']['amount_paid'] = '0.00';
+    $closedZh['amounts']['balance_due'] = '0.00';
+    foreach (['void', 'cancelled', 'canceled'] as $closedStatus) {
+        $closedZh['invoice']['status'] = $closedStatus;
+        $closedZhHtml = $htmlMethod->invoke($renderer, $closedZh);
+        expect(str_contains($closedZhHtml, '>已关闭，无需付款</td>') && str_contains($closedZhHtml, 'class="balance"') && str_contains($closedZhHtml, 'USD 10.00') && str_contains($closedZhHtml, 'USD 0.00'), 'Closed Chinese invoice notice or original totals are missing.');
+    }
+    $closedEn = $closedZh;
+    $closedEn['locale'] = 'en_US';
+    $closedEn['invoice']['status'] = 'cancelled';
+    $closedEnHtml = $htmlMethod->invoke($renderer, $closedEn);
+    expect(str_contains($closedEnHtml, '>Closed — no payment due</td>'), 'Closed English invoice notice is missing.');
+    $partiallyRefunded = $closedZh;
+    $partiallyRefunded['invoice']['status'] = 'paid';
+    $partiallyRefunded['amounts']['amount_paid'] = '3.00';
+    $partiallyRefunded['amounts']['amount_refunded'] = '3.00';
+    $partiallyRefundedHtml = $htmlMethod->invoke($renderer, $partiallyRefunded);
+    expect(str_contains($partiallyRefundedHtml, '>部分退款</td>') && str_contains($partiallyRefundedHtml, '>已退款</td><td>USD 3.00</td>') && str_contains($partiallyRefundedHtml, '>已支付</td><td>USD 3.00</td>'), 'Partial refund did not compare against invoice total, retain paid amount, and add a refunded row.');
     expect(!str_contains($html, '#35c8df') && !str_contains(file_get_contents(ROOT . '/renderer/src/InvoiceRenderer.php'), 'date('), 'Renderer contains non-snapshot visual or runtime content.');
     putenv('PPFLIGHT_CJK_FONT_SHA256=' . str_repeat('0', 64));
     $fontPath = new ReflectionMethod($renderer, 'fontPath');
@@ -147,7 +190,7 @@ try {
     $spec = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
     $process = proc_open($command, $spec, $pipes, ROOT, ['PPFLIGHT_DOMPDF_TEST_AUTOLOAD' => $autoload]);
     expect(is_resource($process), 'Could not start renderer CLI.');
-    fwrite($pipes[0], json_encode($xss, JSON_THROW_ON_ERROR));
+    fwrite($pipes[0], json_encode($closedZh, JSON_THROW_ON_ERROR));
     fclose($pipes[0]);
     $stdout = stream_get_contents($pipes[1]);
     $stderr = stream_get_contents($pipes[2]);

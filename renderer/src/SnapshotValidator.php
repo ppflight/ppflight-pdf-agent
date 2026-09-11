@@ -37,7 +37,9 @@ final class SnapshotValidator
         if (!in_array($snapshot['locale'], ['en_US', 'zh_CN'], true)) {
             throw new RenderException('locale must be en_US or zh_CN.');
         }
-        $this->string($snapshot['template_version'], 'template_version', 64, '/^[A-Za-z0-9][A-Za-z0-9._-]*$/D');
+        if (!in_array($snapshot['template_version'], ['invoice-v1', 'invoice-v2'], true)) {
+            throw new RenderException('template_version must be invoice-v1 or invoice-v2.');
+        }
 
         $invoice = $this->object($snapshot['invoice'], 'invoice');
         $this->keys($invoice, ['display_number', 'issued_at', 'due_at', 'paid_at', 'status', 'currency'], 'invoice');
@@ -72,9 +74,12 @@ final class SnapshotValidator
         $this->payments($snapshot['payments']);
         $amounts = $this->object($snapshot['amounts'], 'amounts');
         $amountKeys = ['subtotal', 'discount', 'tax', 'total', 'amount_paid', 'balance_due'];
-        $this->keys($amounts, $amountKeys, 'amounts');
+        $this->keys($amounts, [...$amountKeys, 'amount_refunded'], 'amounts');
         $this->required($amounts, $amountKeys, 'amounts');
-        foreach ($amountKeys as $key) {
+        foreach ([...$amountKeys, 'amount_refunded'] as $key) {
+            if (!array_key_exists($key, $amounts)) {
+                continue;
+            }
             $this->amount($amounts[$key], 'amounts.' . $key);
         }
 

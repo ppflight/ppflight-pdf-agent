@@ -4,11 +4,13 @@ import io
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
 
 SOURCE = Path(__file__).resolve().parents[1]
+VERSION = subprocess.check_output([sys.executable, str(SOURCE / 'agent.py'), 'version'], text=True).strip()
 
 
 class BootstrapTests(unittest.TestCase):
@@ -24,7 +26,7 @@ class BootstrapTests(unittest.TestCase):
 set -eu
 printf '%s\\n' "$*" >>"$TEST_TRACE"
 mkdir -p "$TEST_APP/.venv/bin" "$TEST_APP/scripts"
-printf '#!/usr/bin/env bash\\nprintf "1.0.11\\\\n"\\n' >"$TEST_APP/.venv/bin/python"
+printf '#!/usr/bin/env bash\\nprintf "''' + VERSION + '''\\\\n"\\n' >"$TEST_APP/.venv/bin/python"
 chmod +x "$TEST_APP/.venv/bin/python"
 printf '{}' >"$TEST_APP/agent.py"
 cat >"$TEST_APP/scripts/status-report.py" <<'PYREPORT'
@@ -33,8 +35,8 @@ print(json.dumps({"binding": "unbound"}))
 PYREPORT
 printf '{"tunnel_port":9761}' >"$TEST_CONFIG"
 '''
-            archive = release / 'ppflight-pdf-agent-1.0.11.tar.gz'
-            base = 'ppflight-pdf-agent-1.0.11'
+            archive = release / ('ppflight-pdf-agent-' + VERSION + '.tar.gz')
+            base = 'ppflight-pdf-agent-' + VERSION
             with tarfile.open(archive, 'w:gz') as tar:
                 directory = tarfile.TarInfo(base)
                 directory.type = tarfile.DIRTYPE
@@ -99,7 +101,7 @@ cp "$TEST_RELEASE/${url##*/}" "$dest"
         self.assertNotIn('--artifact-dir', calls)
 
     def test_downgrade_is_rejected(self):
-        result, calls = self.run_install(installed='1.0.12')
+        result, calls = self.run_install(installed='1.0.13')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, '')
 

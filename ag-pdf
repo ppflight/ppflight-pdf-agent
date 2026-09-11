@@ -12,7 +12,7 @@ STATE_DIR=/var/lib/${APP_NAME}
 usage() {
   cat <<'EOF'
 用法：ag-pdf [状态]
-      ag-pdf {检查|统计|日志 [journalctl 参数]|绑定 [--code-file 文件]}
+      ag-pdf {检查|统计|日志 [journalctl 参数]|绑定 [--code-file 文件]|升级 [版本]}
       ag-pdf {服务 启动|服务 停止|服务 重启|版本|路径|帮助}
 
 状态    显示服务、绑定、ADMIN 连接、任务和 PDF 统计（默认）。
@@ -20,14 +20,41 @@ usage() {
 统计    只显示本地绑定、任务、PDF 和磁盘统计。
 日志    显示服务日志，可附加 -n 100 等 journalctl 参数。
 绑定    从标准输入或受保护文件读取一次性绑定码。
+升级    手动从 GitHub Release 下载、校验并升级；省略版本时使用最新发行版。
 服务    启动、停止或重启 systemd 服务。
 
-兼容英文子命令：status check stats logs bind service version paths help
+兼容英文子命令：status check stats logs bind update service version paths help
 EOF
 }
 
 artifact_dir() { sed -n 's/^PDF_AGENT_ARTIFACT_DIR=//p' "${INSTALL_ENV}" 2>/dev/null | head -n 1; }
 current_release() { readlink -f "${APP_ROOT}/current" 2>/dev/null; }
+release_version() {
+  local version=${1#v}
+  [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+    echo '版本必须为 x.y.z。' >&2
+    return 2
+  }
+  printf '%s\n' "${version}"
+}
+latest_release_version() {
+  curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --connect-timeout 10 --max-time 30 \
+    https://api.github.com/repos/ppflight/ppflight-pdf-agent/releases/latest | \
+    python3 -c 'import json, re, sys; tag=json.load(sys.stdin).get("tag_name", ""); version=tag[1:] if tag.startswith("v") else tag
+if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version): raise SystemExit(1)
+print(version)'
+}
+release_sha256() {
+  local version=$1 archive checksum
+  archive="${APP_NAME}-${version}.tar.gz"
+  checksum="$(curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --connect-timeout 10 --max-time 30 \
+    "https://github.com/ppflight/ppflight-pdf-agent/releases/download/v${version}/${archive}.sha256")"
+  printf '%s' "${checksum}" | python3 -c 'import re, sys; archive=sys.argv[1]; value=sys.stdin.read().strip(); match=re.fullmatch(r"([A-Fa-f0-9]{64})[ \t]+\\*?" + re.escape(archive), value)
+if not match: raise SystemExit(1)
+print(match.group(1).lower())' "${archive}"
+}
 as_agent() {
   if [[ ${EUID} -eq 0 ]]; then
     runuser -u ppflight-pdf -- "$@"
@@ -120,6 +147,26 @@ case "${1:-状态}" in
       exec "${APP_ROOT}/current/bind.sh" "$@"
     fi
     exec sudo "${APP_ROOT}/current/bind.sh" "$@"
+    ;;
+  update|升级)
+    shift
+    [[ $# -le 1 ]] || { echo '用法：ag-pdf 升级 [版本]' >&2; exit 2; }
+    current="$(current_release)"
+    [[ -n "${current}" && -x "${current}/update.sh" ]] || { echo '未找到已安装的更新器。' >&2; exit 1; }
+    if [[ $# -eq 1 ]]; then
+      target="$(release_version "$1")"
+    else
+      target="$(latest_release_version)" || { echo '无法读取 GitHub 最新发行版。' >&2; exit 1; }
+    fi
+    installed="$(basename "${current}")"
+    if [[ "${target}" == "${installed}" ]]; then
+      echo "已是 ${target}，无需升级。"
+      exit 0
+    fi
+    sha256="$(release_sha256 "${target}")" || { echo 'GitHub Release 校验文件无效。' >&2; exit 1; }
+    as_root "${current}/update.sh" --version "${target}" \
+      --url "https://github.com/ppflight/ppflight-pdf-agent/releases/download/v${target}/${APP_NAME}-${target}.tar.gz" \
+      --sha256 "${sha256}"
     ;;
   service|服务)
     action=${2:-}
