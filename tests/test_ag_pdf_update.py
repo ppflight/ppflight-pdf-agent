@@ -38,6 +38,9 @@ class AgPdfUpdateTests(unittest.TestCase):
                 "esac\n"
             )
             fake_curl.chmod(0o755)
+            fake_sudo = bin_dir / "sudo"
+            fake_sudo.write_text("#!/usr/bin/env bash\nexec \"$@\"\n")
+            fake_sudo.chmod(0o755)
             wrapper = (SOURCE / "ag-pdf").read_text().replace(
                 "APP_ROOT=/opt/${APP_NAME}", f"APP_ROOT={app_root}"
             )
