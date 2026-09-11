@@ -24,7 +24,7 @@ class BootstrapTests(unittest.TestCase):
 set -eu
 printf '%s\\n' "$*" >>"$TEST_TRACE"
 mkdir -p "$TEST_APP/.venv/bin" "$TEST_APP/scripts"
-printf '#!/usr/bin/env bash\\nprintf "1.0.7\\\\n"\\n' >"$TEST_APP/.venv/bin/python"
+printf '#!/usr/bin/env bash\\nprintf "1.0.8\\\\n"\\n' >"$TEST_APP/.venv/bin/python"
 chmod +x "$TEST_APP/.venv/bin/python"
 printf '{}' >"$TEST_APP/agent.py"
 cat >"$TEST_APP/scripts/status-report.py" <<'PYREPORT'
@@ -33,11 +33,12 @@ print(json.dumps({"binding": "unbound"}))
 PYREPORT
 printf '{"tunnel_port":9761}' >"$TEST_CONFIG"
 '''
-            archive = release / 'ppflight-pdf-agent-1.0.7.tar.gz'
-            base = 'ppflight-pdf-agent-1.0.7'
+            archive = release / 'ppflight-pdf-agent-1.0.8.tar.gz'
+            base = 'ppflight-pdf-agent-1.0.8'
             with tarfile.open(archive, 'w:gz') as tar:
                 directory = tarfile.TarInfo(base)
                 directory.type = tarfile.DIRTYPE
+                directory.mode = 0o755
                 tar.addfile(directory)
                 for name, data in [('install.sh', install.encode()), ('renderer/vendor/autoload.php', b'<?php')]:
                     member = tarfile.TarInfo(base + '/' + name)
@@ -82,7 +83,7 @@ cp "$TEST_RELEASE/${url##*/}" "$dest"
                 result = subprocess.run(['bash', str(entry), '--skip-bind'], env=env, capture_output=True, text=True)
             calls = trace.read_text() if trace.exists() else ''
             self.assertFalse((root / 'escaped').exists())
-            self.assertEqual(list(root.glob('work.*')), [])
+            self.assertEqual(list(root.glob('work.*')), [], result.stderr)
             return result, calls
 
     def test_fresh_install_and_repeat_preserve_installation(self):
@@ -98,7 +99,7 @@ cp "$TEST_RELEASE/${url##*/}" "$dest"
         self.assertNotIn('--artifact-dir', calls)
 
     def test_downgrade_is_rejected(self):
-        result, calls = self.run_install(installed='1.0.8')
+        result, calls = self.run_install(installed='1.0.9')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, '')
 

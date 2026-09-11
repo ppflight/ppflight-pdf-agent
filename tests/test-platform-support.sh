@@ -162,7 +162,10 @@ fi
 [[ "$(wc -l <"${APT_CALLS}")" -eq 2 ]]
 grep -Fq 'APT::Update::Error-Mode=any update' "${APT_CALLS}"
 grep -Fq 'install -y --no-install-recommends python3-venv' "${APT_CALLS}"
-! grep -Eq 'passwd|login' "${APT_CALLS}"
+if grep -Eq 'passwd|login' "${APT_CALLS}"; then
+  echo 'installed account packages must not be requested' >&2
+  exit 1
+fi
 [[ "$(grep -c 'Acquire::ForceIPv4=true.*Acquire::http::Timeout=20.*Acquire::https::Timeout=20.*Acquire::Retries=2' "${APT_CALLS}")" -eq 2 ]]
 
 # An IPv6-only host may opt out without persistent APT configuration changes.
@@ -186,7 +189,10 @@ APT_FAILURE_STATUS=$?
 set -e
 [[ ${APT_FAILURE_STATUS} -eq 1 ]]
 [[ "$(wc -l <"${APT_CALLS}")" -eq 1 ]]
-! grep -Fq 'install -y' "${APT_CALLS}"
+if grep -Fq 'install -y' "${APT_CALLS}"; then
+  echo 'failed refresh must stop installation' >&2
+  exit 1
+fi
 
 DNF_CUSTOM_CALLS="$(mktemp)"
 (
