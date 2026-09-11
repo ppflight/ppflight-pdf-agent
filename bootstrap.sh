@@ -2,7 +2,7 @@
 # Standalone entry point: no checkout, Composer, nginx or sourced files needed.
 set -Eeuo pipefail
 
-readonly RELEASE_VERSION=1.0.10
+readonly RELEASE_VERSION=1.0.11
 readonly RELEASE_BASE="https://github.com/ppflight/ppflight-pdf-agent/releases/download/v${RELEASE_VERSION}"
 readonly APP_CURRENT=/opt/ppflight-pdf-agent/current
 readonly CONFIG_PATH=/etc/ppflight-pdf-agent/config.json

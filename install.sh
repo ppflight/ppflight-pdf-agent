@@ -102,6 +102,7 @@ fi
 
 rollback_install() {
   local exit_code=$?
+  trap - EXIT
   note "installation failed; restoring the previous current release"
   if [[ ${UNIT_EXISTED} -eq 1 ]]; then
     install -m 0644 "${UNIT_BACKUP}" "${UNIT_FILE}" || true
@@ -132,7 +133,7 @@ rollback_install() {
   rm -f -- "${UNIT_BACKUP}" "${PAG_BACKUP}" "${AG_PDF_BACKUP}"
   exit "${exit_code}"
 }
-trap rollback_install ERR
+trap rollback_install EXIT
 
 mkdir -p -- "${RELEASE_DIR}"
 RELEASE_PATHS=(
@@ -185,6 +186,6 @@ if [[ ${START_SERVICE} -eq 1 ]]; then
   systemctl restart "${SERVICE_NAME}"
   post_start_check || die "health/ADMIN check failed (unbound installs perform local health preflight only)"
 fi
-trap - ERR
+trap - EXIT
 rm -f -- "${UNIT_BACKUP}" "${PAG_BACKUP}" "${AG_PDF_BACKUP}"
 note "installed ${VERSION}; current -> ${RELEASE_DIR}"
