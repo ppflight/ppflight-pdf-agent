@@ -61,7 +61,7 @@ bash <(curl -fsSL --connect-timeout 20 --retry 2 https://raw.githubusercontent.c
 文件异步生成，每次处理一个任务。负载过高、可用内存不足 2 GiB 或磁盘剩余不足 1 GiB 时会等待，
 支付流程不会等待 PDF 渲染。主站本地渲染兜底由管理员独立控制。
 
-日常输入 `ag-pdf` 查看总览；`ag-pdf 检查` 核对服务与主站认证，`ag-pdf 日志 -n 100` 查看日志。
+日常输入 `ag-pdf 状态` 查看总览；`ag-pdf 检查` 核对服务与主站认证，`ag-pdf 日志 -n 100` 查看日志。
 
 手动从 GitHub 更新（不定时自动更新）：
 
@@ -105,6 +105,8 @@ v1.0.13 在服务刚启动或重启时立即检查健康，尚未监听的早期
 APT 默认仅 IPv4、网络等待 20 秒、失败重试 2 次；只补缺失基础包。
 已有可信 CA 时，Ubuntu 官方 HTTP 源会通过临时副本使用同镜像 HTTPS，原系统源不变。
 仅 IPv6 主机可设置 `PPFLIGHT_APT_FORCE_IPV4=false`，详见维护文档。
+
+Cloudflare Tunnel 需允许出站访问 7844 端口的 `quic.cftunnel.com` 等官方 Tunnel 端点；完整防火墙要求见维护文档。
 
 ## 维护文档
 
