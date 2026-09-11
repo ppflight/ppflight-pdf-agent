@@ -101,7 +101,7 @@ cp "$TEST_RELEASE/${url##*/}" "$dest"
         self.assertNotIn('--artifact-dir', calls)
 
     def test_downgrade_is_rejected(self):
-        result, calls = self.run_install(installed='1.0.13')
+        result, calls = self.run_install(installed='99.0.0')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, '')
 

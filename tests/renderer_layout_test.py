@@ -219,7 +219,7 @@ def main():
         )
         assert_summary(
             zh_rows,
-            [("状态", "paid"), ("币种", "USD"), ("付款时间", "2026-08-26")],
+            [("状态", "已支付"), ("币种", "USD"), ("付款时间", "2026-08-26")],
         )
         assert_table_grid(zh_rows)
 
@@ -234,7 +234,7 @@ def main():
         )
         assert_summary(
             en_rows,
-            [("Status", "paid"), ("Currency", "USD"), ("Paid at", "2026-08-26")],
+            [("Status", "Paid"), ("Currency", "USD"), ("Paid at", "2026-08-26")],
         )
 
         long_display_number = "INV-" + ("A" * 60)
