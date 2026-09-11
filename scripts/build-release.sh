@@ -59,7 +59,7 @@ RELEASE_ROOT="${WORK_DIR}/${ROOT_NAME}"
 mkdir -p -- "${RELEASE_ROOT}"
 
 RELEASE_PATHS=(
-  README.md agent.py ag-pdf pag bind.sh install.sh update.sh rollback.sh uninstall.sh
+  README.md agent.py ag-pdf pag bootstrap.sh bind.sh install.sh update.sh rollback.sh uninstall.sh
   pdf_agent renderer packaging scripts docs tests
 )
 for path in "${RELEASE_PATHS[@]}"; do

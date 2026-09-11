@@ -34,15 +34,23 @@ def main(argv=None) -> int:
             elif args.command == "check":
                 print(json.dumps(agent.check(), sort_keys=True))
             else:
-                server = DownloadServer(agent)
+                servers = [DownloadServer(agent)]
+                if agent.config.tunnel_port:
+                    try:
+                        servers.append(DownloadServer(agent, tunnel_only=True))
+                    except OSError as exc:
+                        servers[0].httpd.server_close()
+                        raise AgentError("Tunnel port is unavailable; check the configured local port") from exc
                 stop = threading.Event()
                 signal.signal(signal.SIGTERM, lambda *_: stop.set())
                 signal.signal(signal.SIGINT, lambda *_: stop.set())
-                server.start()
+                for server in servers:
+                    server.start()
                 try:
                     agent.run(stop)
                 finally:
-                    server.close()
+                    for server in reversed(servers):
+                        server.close()
             return 0
         finally:
             agent.close()

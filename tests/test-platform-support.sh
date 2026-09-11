@@ -139,6 +139,55 @@ if grep -Fq 'php-cli' "${APT_CALLS}"; then
   exit 1
 fi
 
+# A configured host should do no APT network work at all.
+: >"${APT_CALLS}"
+(
+  dpkg-query() { printf 'install ok installed'; }
+  apt-get() { printf '%s\n' "$*" >>"${APT_CALLS}"; }
+  php_runtime_ok() { return 0; }
+  install_apt_dependencies 8.2
+)
+[[ ! -s "${APT_CALLS}" ]]
+
+# Missing venv must not cause installed passwd/login to be requested again.
+(
+  dpkg-query() {
+    [[ "$*" != *python3-venv* ]] || return 1
+    printf 'install ok installed'
+  }
+  apt-get() { printf '%s\n' "$*" >>"${APT_CALLS}"; }
+  php_runtime_ok() { return 0; }
+  install_apt_dependencies 8.2
+)
+[[ "$(wc -l <"${APT_CALLS}")" -eq 2 ]]
+grep -Fq 'APT::Update::Error-Mode=any update' "${APT_CALLS}"
+grep -Fq 'install -y --no-install-recommends python3-venv' "${APT_CALLS}"
+! grep -Eq 'passwd|login' "${APT_CALLS}"
+[[ "$(grep -c 'Acquire::ForceIPv4=true.*Acquire::http::Timeout=20.*Acquire::https::Timeout=20.*Acquire::Retries=2' "${APT_CALLS}")" -eq 2 ]]
+
+# An IPv6-only host may opt out without persistent APT configuration changes.
+: >"${APT_CALLS}"
+(
+  apt-get() { printf '%s\n' "$*" >>"${APT_CALLS}"; }
+  PPFLIGHT_APT_FORCE_IPV4=false apt_for_installer update
+)
+grep -Fq 'Acquire::ForceIPv4=false' "${APT_CALLS}"
+
+# A failed refresh must stop before installation; no stale-index success.
+: >"${APT_CALLS}"
+set +e
+(
+  dpkg-query() { return 1; }
+  apt-get() { printf '%s\n' "$*" >>"${APT_CALLS}"; return 100; }
+  php_runtime_ok() { return 0; }
+  install_apt_dependencies 8.2
+) >/dev/null 2>&1
+APT_FAILURE_STATUS=$?
+set -e
+[[ ${APT_FAILURE_STATUS} -eq 1 ]]
+[[ "$(wc -l <"${APT_CALLS}")" -eq 1 ]]
+! grep -Fq 'install -y' "${APT_CALLS}"
+
 DNF_CUSTOM_CALLS="$(mktemp)"
 (
   dnf() { printf '%s\n' "$*" >>"${DNF_CUSTOM_CALLS}"; }

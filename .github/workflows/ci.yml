@@ -131,7 +131,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck nginx-light openssl
       - name: Check operational scripts
         run: |
-          shellcheck install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag scripts/*.sh tests/*.sh
+          shellcheck bootstrap.sh install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag scripts/*.sh tests/*.sh
           ./tests/test-platform-support.sh
       - name: Validate Nginx publication examples
         run: ./scripts/verify-nginx-config.sh

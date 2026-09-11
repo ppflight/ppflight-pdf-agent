@@ -136,7 +136,7 @@ trap rollback_install ERR
 
 mkdir -p -- "${RELEASE_DIR}"
 RELEASE_PATHS=(
-  README.md agent.py ag-pdf pag bind.sh install.sh update.sh rollback.sh uninstall.sh
+  README.md agent.py ag-pdf pag bootstrap.sh bind.sh install.sh update.sh rollback.sh uninstall.sh
   pdf_agent renderer packaging scripts docs
 )
 tar -C "${SOURCE_DIR}" \

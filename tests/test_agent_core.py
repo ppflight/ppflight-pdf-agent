@@ -1,3 +1,5 @@
+import base64
+import hmac
 import hashlib
 import http.client
 import io
@@ -172,6 +174,48 @@ class AgentCoreTests(unittest.TestCase):
         changed["snapshot_sha256"] = canonical_json_sha256(changed["snapshot"])
         with self.assertRaises(AgentError):
             self.agent.process_task(changed)
+
+    def test_tunnel_listener_blocks_health_and_only_serves_authenticated_pdf(self):
+        self.bind_local()
+        pdf = self.config.artifact_dir / "artifact-1-4.pdf"
+        pdf.write_bytes(b"%PDF-1.7\nunit-test")
+        self.agent.store.mark_ready("artifact-1", 4, pdf.name, "PPFlight-confirmation.pdf", hashlib.sha256(pdf.read_bytes()).hexdigest(), pdf.stat().st_size)
+        server = DownloadServer(self.agent, tunnel_only=True)
+        server.start()
+        try:
+            self.assertEqual(server.httpd.server_address[0], "127.0.0.1")
+            token = self.agent.mint_download_grant("artifact-1", 4)
+            def request(path, method="GET"):
+                connection = http.client.HTTPConnection("127.0.0.1", server.httpd.server_port, timeout=3)
+                connection.request(method, path, headers={"Host": "127.0.0.1:9760"})
+                response = connection.getresponse()
+                result = response.status, response.getheader("Content-Disposition"), response.read()
+                connection.close()
+                return result
+            for path in ("/healthz", "/", "/config.json", "/v1/download/artifact-1"):
+                self.assertEqual(request(path)[0], 404)
+                self.assertEqual(request(path)[2], b"")
+            for method in ("POST", "OPTIONS", "PUT", "DELETE", "TRACE"):
+                self.assertEqual(request("/", method)[0], 404)
+                self.assertEqual(request("/", method)[2], b"")
+            self.assertEqual(request("/v1/download/artifact-1?grant=" + token)[0], 200)
+            encoded, _ = token.split(".")
+            claims = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+            claims["disposition"] = "inline"
+            def sign(payload):
+                segment = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
+                signature = base64.urlsafe_b64encode(hmac.new(b"x" * 32, segment.encode(), hashlib.sha256).digest()).decode().rstrip("=")
+                return segment + "." + signature
+            inline = sign(claims)
+            result = request("/v1/download/artifact-1?grant=" + inline)
+            self.assertEqual(result[0], 200)
+            self.assertEqual(result[1], 'inline; filename="PPFlight-confirmation.pdf"')
+            self.assertEqual(request("/v1/download/artifact-1?grant=" + inline, "HEAD")[2], b"")
+            claims["disposition"] = "inline\r\nX-Injected: true"
+            self.assertEqual(request("/v1/download/artifact-1?grant=" + sign(claims))[0], 404)
+            self.assertEqual(request("/v1/download/artifact-1?grant=" + token + "&disposition=inline")[0], 404)
+        finally:
+            server.close()
 
     def test_download_requires_agent_bound_short_lived_capability(self):
         self.bind_local()

@@ -19,7 +19,7 @@ done
 
 [[ -n "${SOURCE_DIR}" ]] || { usage; exit 2; }
 SOURCE_DIR="$(cd -P -- "${SOURCE_DIR}" && pwd)"
-for file in install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag \
+for file in bootstrap.sh install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag \
   scripts/status-report.py scripts/verify-nginx-config.sh scripts/build-release.sh \
   scripts/ci-platform-smoke.sh tests/test-platform-support.sh \
   scripts/lib.sh scripts/verify-release-archive.py scripts/verify-runtime-config.py \

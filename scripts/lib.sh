@@ -226,13 +226,29 @@ php_binary_is_os_managed() {
   esac
 }
 
+apt_for_installer() {
+  # Scope transport settings to this invocation; never disable host IPv6 or
+  # rewrite the administrator's repositories. IPv6-only hosts can opt out.
+  local force_ipv4=${PPFLIGHT_APT_FORCE_IPV4:-true}
+  [[ "${force_ipv4}" == true || "${force_ipv4}" == false ]] || \
+    die "PPFLIGHT_APT_FORCE_IPV4 must be true or false"
+  DEBIAN_FRONTEND=noninteractive apt-get \
+    -o "Acquire::ForceIPv4=${force_ipv4}" \
+    -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+    -o Acquire::Retries=2 "$@"
+}
+
 install_apt_dependencies() {
-  local minimum_php=$1
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y --no-install-recommends \
-    ca-certificates coreutils curl findutils grep gzip passwd python3 \
-    python3-venv sed systemd tar util-linux
+  local minimum_php=$1 package
+  local -a missing_packages=()
+  # Inspect installed state before requesting packages: naming every installed
+  # base package in apt-get install can unnecessarily upgrade passwd/login.
+  for package in ca-certificates coreutils curl findutils grep gzip passwd \
+      python3 python3-venv sed systemd tar util-linux; do
+    if [[ "$(dpkg-query -W -f='${Status}' "${package}" 2>/dev/null || true)" != 'install ok installed' ]]; then
+      missing_packages+=("${package}")
+    fi
+  done
   if ! php_runtime_ok "${minimum_php}"; then
     if fixed_php_binary >/dev/null && ! php_binary_is_os_managed apt; then
       die "the existing custom PHP runtime is incomplete; install PHP >=${minimum_php} with mbstring, xml and gd without changing the control-panel runtime"
@@ -242,8 +258,18 @@ install_apt_dependencies() {
          'exit(version_compare(PHP_VERSION, getenv("PHP_MINIMUM"), ">=") ? 0 : 1);'; then
       die "refusing to replace an existing PHP runtime older than ${minimum_php}"
     fi
-    apt-get install -y --no-install-recommends php-cli php-mbstring php-xml php-gd
+    missing_packages+=(php-cli php-mbstring php-xml php-gd)
   fi
+  if [[ ${#missing_packages[@]} -eq 0 ]]; then
+    note "system dependencies already available; skipping APT downloads"
+    return 0
+  fi
+  note "refreshing configured APT repositories (IPv4=${PPFLIGHT_APT_FORCE_IPV4:-true}, transport timeout=20s, retries=2)"
+  apt_for_installer -o APT::Update::Error-Mode=any update || \
+    die "APT repository refresh failed; check the configured mirror and network, then retry"
+  note "installing missing dependencies: ${missing_packages[*]}"
+  apt_for_installer install -y --no-install-recommends "${missing_packages[@]}" || \
+    die "APT dependency download/install failed; check the configured mirror and network, then retry"
 }
 
 install_dnf_dependencies() {

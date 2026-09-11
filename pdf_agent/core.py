@@ -33,7 +33,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _DOWNLOAD_NAME_RE = re.compile(r"^PPFlight-[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.pdf$")
@@ -168,6 +168,7 @@ class AgentConfig:
     cache_dir: Path
     download_audience: str
     download_port: int = 9760
+    tunnel_port: int = 0
     load1_max: float = 2.0
     mem_available_min: int = 2 * 1024 * 1024 * 1024
     disk_free_min: int = 1024 * 1024 * 1024
@@ -191,7 +192,7 @@ class AgentConfig:
             raise AgentError("configuration must be a JSON object")
         required = {"admin_url", "artifact_dir", "state_path", "db_path", "cache_dir",
                     "download_audience"}
-        permitted = required | {"download_port", "load1_max", "mem_available_min",
+        permitted = required | {"download_port", "tunnel_port", "load1_max", "mem_available_min",
                                 "disk_free_min",
                                 "heartbeat_seconds", "poll_interval_seconds", "request_timeout_seconds",
                                 "renderer_timeout_seconds", "pdf_max_bytes"}
@@ -219,14 +220,15 @@ class AgentConfig:
             )
         except (TypeError, ValueError) as exc:
             raise AgentError("configuration contains an invalid value") from exc
-        integers = (config.download_port, config.mem_available_min, config.disk_free_min, config.heartbeat_seconds,
+        integers = (config.download_port, config.tunnel_port, config.mem_available_min, config.disk_free_min, config.heartbeat_seconds,
                     config.poll_interval_seconds, config.request_timeout_seconds,
                     config.renderer_timeout_seconds, config.pdf_max_bytes)
         if any(isinstance(item, bool) or not isinstance(item, int) for item in integers):
             raise AgentError("configuration limits must be numeric")
         if isinstance(config.load1_max, bool) or not isinstance(config.load1_max, (int, float)):
             raise AgentError("configuration limits must be numeric")
-        if (not 1 <= config.download_port <= 65535 or config.load1_max < 0
+        if (not 1 <= config.download_port <= 65535 or not 0 <= config.tunnel_port <= 65535
+                or config.tunnel_port == config.download_port or config.load1_max < 0
                 or config.mem_available_min < 0 or config.disk_free_min < 0):
             raise AgentError("configuration contains an out-of-range value")
         if min(config.heartbeat_seconds, config.poll_interval_seconds, config.request_timeout_seconds,
@@ -897,7 +899,9 @@ class Agent:
                 return False
             claims = _decode_json(_b64decode(encoded), "invalid download grant")
             now = int(time.time())
-            return (isinstance(claims, dict) and set(claims) == {"aud", "artifact", "revision", "exp", "agent_uuid"}
+            return (isinstance(claims, dict) and set(claims) in ({"aud", "artifact", "revision", "exp", "agent_uuid"},
+                        {"aud", "artifact", "revision", "exp", "agent_uuid", "disposition"})
+                    and claims.get("disposition", "attachment") in ("attachment", "inline")
                     and isinstance(claims["aud"], str) and isinstance(claims["artifact"], str)
                     and isinstance(claims["agent_uuid"], str) and isinstance(claims["revision"], int)
                     and not isinstance(claims["revision"], bool) and isinstance(claims["exp"], int)
@@ -911,7 +915,7 @@ class Agent:
 
 class DownloadServer:
     """A local-only, capability-token protected PDF server."""
-    def __init__(self, agent: Agent):
+    def __init__(self, agent: Agent, *, tunnel_only: bool = False):
         self.agent = agent
         outer = self
         class BoundedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
@@ -941,6 +945,14 @@ class DownloadServer:
                 self.connection.settimeout(15)
             def do_GET(self) -> None: self._serve(True)
             def do_HEAD(self) -> None: self._serve(False)
+            def send_response(self, code: int, message: Optional[str] = None) -> None:
+                # Public responses disclose no Python/Agent version or banner.
+                self.send_response_only(code, message)
+                self.send_header("Date", self.date_time_string())
+            def send_error(self, code: int, message: Optional[str] = None, explain: Optional[str] = None) -> None:
+                # BaseHTTPRequestHandler would otherwise emit an HTML error
+                # page for unsupported methods or malformed request lines.
+                self._headers(404)
             def _headers(self, status: int, length: int = 0) -> None:
                 self.send_response(status)
                 self.send_header("Cache-Control", "no-store")
@@ -956,7 +968,7 @@ class DownloadServer:
             def _serve(self, body: bool) -> None:
                 parsed = urlparse(self.path)
                 health_host = (self.headers.get("Host") or "").lower()
-                if (parsed.path == "/healthz" and not parsed.query
+                if (not tunnel_only and parsed.path == "/healthz" and not parsed.query
                         and health_host in ("127.0.0.1", "127.0.0.1:9760", "localhost", "localhost:9760")):
                     self._headers(200, 2)
                     if body: self.wfile.write(b"ok")
@@ -982,7 +994,7 @@ class DownloadServer:
                 source, size, download_name = item
                 self.send_response(200)
                 self.send_header("Content-Type", "application/pdf")
-                self.send_header("Content-Disposition", 'attachment; filename="%s"' % download_name)
+                self.send_header("Content-Disposition", '%s; filename="%s"' % (claims.get("disposition", "attachment"), download_name))
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("X-Frame-Options", "DENY")
@@ -1003,7 +1015,7 @@ class DownloadServer:
                             remaining -= len(block)
                 finally:
                     source.close()
-        self.httpd = BoundedHTTPServer(("127.0.0.1", agent.config.download_port), Handler)
+        self.httpd = BoundedHTTPServer(("127.0.0.1", agent.config.tunnel_port if tunnel_only else agent.config.download_port), Handler)
         self.thread: Optional[threading.Thread] = None
 
     def start(self) -> None:

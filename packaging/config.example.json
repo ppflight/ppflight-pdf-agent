@@ -6,5 +6,6 @@
   "cache_dir": "/var/lib/ppflight-pdf-agent/cache",
   "download_audience": "ppflight-pdf-download",
   "download_port": 9760,
+  "tunnel_port": 9761,
   "poll_interval_seconds": 10
 }

@@ -11,11 +11,31 @@ PDF，并把文件保存在 Agent 所在服务器的私有目录中。
 - 下载必须经过最长 5 分钟的签名链接，不能把 PDF 目录设为静态网站目录。
 - Agent 固定监听 `127.0.0.1:9760`，不可直接暴露到公网。
 
-## 生产交接（下一个 AI 先读这里）
+## 一键安装（v1.0.7）
+
+在 PDF 服务器以 root 执行这一条命令；下载、校验、解压、依赖安装和绑定引导自动完成：
+
+```bash
+bash <(curl -fsSL --connect-timeout 20 --retry 2 https://raw.githubusercontent.com/ppflight/ppflight-pdf-agent/v1.0.7/bootstrap.sh)
+```
+
+先在 PPFlight 后台保存 HTTPS 下载域名并生成一次性绑定码，安装提示时粘贴。
+新安装不需要 Nginx，服务直接监听 `127.0.0.1:9761` 供同机 Tunnel 转发；
+控制和健康接口仍留在 `127.0.0.1:9760`。Tunnel 由管理员自行配置，脚本不安装 cloudflared。
+直接访问域名首页、未签名下载及其他路径只返回空的 404；PDF 预览／下载必须持有官网或后台签发的短期签名。
+预览模式也在签名中，不能通过添加未签名的 URL 参数启用。
+
+重复执行保留现有绑定和账单文件。同版本不重复安装，旧版本升级沿用原文件目录和代理配置，
+不自动替换旧 Nginx；更高版本不自动降级。默认新文件目录为 `/var/lib/ppflight-pdf-agent/artifacts`。
+普通 A 记录开橙云不能转发到回环端口；如不用 Tunnel，参阅下方独立 HTTPS 反向代理方案。
+
+以下手动安装步骤仅用于高级维护，不是一键安装的必做步骤。
+
+## 历史生产交接（2026-08-29，不是本次安装状态）
 
 以下是生产验收时的脱敏部署回执，不替代实时状态检查：
 
-- 当前公开发行版为
+- 当时公开发行版为
   [`v1.0.6`](https://github.com/ppflight/ppflight-pdf-agent/releases/tag/v1.0.6)；安装或升级必须使用
   Release 同页的 `.sha256` 附件校验压缩包；官方压缩包 SHA-256 为
   `fe5040bf907a3dacdb8c26813254666a877c264500dfc6d861922181179fabd0`；
@@ -76,7 +96,7 @@ ADMIN“系统设置 → PDF Agent”核对版本、心跳、绑定、开关和�
 - PHP 8.2 或更高版本，启用 `mbstring`、`xml`、`gd`；Ubuntu 22.04 例外，允许
   使用其发行版维护的 PHP 8.1；
 - curl、systemd；GitHub Release 已包含按锁文件构建的渲染依赖，目标机不需要 Composer；
-- Tunnel 模式还需要 Nginx 和当前受支持的 `cloudflared`。`cloudflared` 请使用
+- v1.0.6 及更早版本的 Tunnel 方案使用 Nginx；v1.0.7 新安装直接提供下载端口，无需 Nginx。`cloudflared` 请使用
   [Cloudflare 官方软件包](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/)，不要从未知脚本安装；
 - 公网下载可使用 Nginx HTTPS；异地 Agent 推荐使用 Cloudflare Tunnel，不需要向
   Internet 开放 Agent 服务器的入站端口。
@@ -102,19 +122,19 @@ CI 在 x86_64 上验证全部发行版；未将其他 CPU 架构列为本版本�
 仓库已公开，可直接用 HTTPS 克隆，不需要 GitHub 登录：
 
 ```bash
-git clone --branch v1.0.6 --depth 1 \
+git clone --branch v1.0.7 --depth 1 \
   https://github.com/ppflight/ppflight-pdf-agent.git
 cd ppflight-pdf-agent
 composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction \
   --no-progress --no-plugins --no-scripts --classmap-authoritative
-sudo ./install.sh --version 1.0.6 --install-deps \
+sudo ./install.sh --version 1.0.7 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
 安装器会：
 
 1. 创建无登录权限的 `ppflight-pdf` 系统账户；
-2. 安装不可变版本到 `/opt/ppflight-pdf-agent/releases/1.0.6`；
+2. 安装不可变版本到 `/opt/ppflight-pdf-agent/releases/1.0.7`；
 3. 创建 `/etc/ppflight-pdf-agent/config.json`；
 4. 创建并启动 `ppflight-pdf-agent.service`；
 5. 安装中文运维命令 `/usr/local/bin/ag-pdf`。
@@ -126,7 +146,7 @@ Agent 写入的持久磁盘，也可以省略参数并使用源码目录下的 `
 如需使用其他独立磁盘，只能在首次安装时指定：
 
 ```bash
-sudo ./install.sh --version 1.0.6 --install-deps --artifact-dir /srv/ppflight-pdf-artifacts
+sudo ./install.sh --version 1.0.7 --install-deps --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
 ### 方法二：安装 GitHub Release（推荐）
@@ -136,16 +156,16 @@ Release 同时提供压缩包和 SHA-256 文件，并已包含锁定的 PDF 渲�
 ```bash
 work_dir="$(mktemp -d)"
 curl --fail --location --proto '=https' --tlsv1.2 \
-  --output "$work_dir/ppflight-pdf-agent-1.0.6.tar.gz" \
-  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.6/ppflight-pdf-agent-1.0.6.tar.gz
+  --output "$work_dir/ppflight-pdf-agent-1.0.7.tar.gz" \
+  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.7/ppflight-pdf-agent-1.0.7.tar.gz
 curl --fail --location --proto '=https' --tlsv1.2 \
-  --output "$work_dir/ppflight-pdf-agent-1.0.6.tar.gz.sha256" \
-  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.6/ppflight-pdf-agent-1.0.6.tar.gz.sha256
+  --output "$work_dir/ppflight-pdf-agent-1.0.7.tar.gz.sha256" \
+  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.7/ppflight-pdf-agent-1.0.7.tar.gz.sha256
 cd "$work_dir"
-sha256sum -c ppflight-pdf-agent-1.0.6.tar.gz.sha256
-tar -xzf ppflight-pdf-agent-1.0.6.tar.gz
-cd ppflight-pdf-agent-1.0.6
-sudo ./install.sh --version 1.0.6 --install-deps \
+sha256sum -c ppflight-pdf-agent-1.0.7.tar.gz.sha256
+tar -xzf ppflight-pdf-agent-1.0.7.tar.gz
+cd ppflight-pdf-agent-1.0.7
+sudo ./install.sh --version 1.0.7 --install-deps \
   --artifact-dir /srv/ppflight-pdf-artifacts
 ```
 
@@ -424,8 +444,8 @@ systemd 服务继续启用 `NoNewPrivileges`、空 capability 集、严格只读
 仓库提供的签名校验接口。
 
 ```bash
-sudo ./update.sh --version 1.0.6 \
-  --url https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.6/ppflight-pdf-agent-1.0.6.tar.gz \
+sudo ./update.sh --version 1.0.7 \
+  --url https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.7/ppflight-pdf-agent-1.0.7.tar.gz \
   --sha256 fe5040bf907a3dacdb8c26813254666a877c264500dfc6d861922181179fabd0
 ```
 
@@ -457,7 +477,7 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 php tests/renderer_test.php
 python3 tests/renderer_layout_test.py
 ./tests/test-platform-support.sh
-./scripts/verify-release.sh --source . --version 1.0.6
+./scripts/verify-release.sh --source . --version 1.0.7
 ```
 
 GitHub Actions 会执行 Python 3.9/3.12/3.13/3.14、PHP 8.1/8.2/8.4/8.5、Composer、
@@ -465,3 +485,12 @@ ShellCheck、真实 PDF 渲染、Poppler 坐标对齐回归，并在每个发行
 Nginx 发布配置。容器镜像按摘要固定；发布资产只从当前 Git commit 的跟踪文件构建，
 并重新按锁文件生成渲染依赖。协议和安全边界详见
 [docs/protocol.md](docs/protocol.md) 与 [docs/operations.md](docs/operations.md)。
+
+### APT 下载停在 Waiting for headers
+
+Debian / Ubuntu 安装依赖沿用本机配置的软件源，不自动换源。安装器只补缺失的基础包，
+依赖齐全时跳过 APT，避免重复请求已安装的 `passwd` 等包而触发无关升级。
+APT 下载默认仅用 IPv4，HTTP / HTTPS 连接及数据等待超时为 20 秒、失败重试 2 次；
+这些参数仅作用于本次安装，不关闭系统 IPv6。仅有 IPv6 的主机可在安装命令前设置
+`PPFLIGHT_APT_FORCE_IPV4=false`。超时是网络等待超时，并非整个安装限时。
+如果 IPv4 下仍超时，请检查输出中实际使用的镜像、代理及网络；仓库刷新失败会停止安装。
