@@ -41,7 +41,8 @@ runtime and does not modify its sites or PHP/FPM configuration.
 | Bind/runtime state | `/var/lib/ppflight-pdf-agent` | `ppflight-pdf` / `0750` | never overwritten |
 | Generated PDFs | source `artifacts/` or explicit directory | `ppflight-pdf` / `0750` | operator retention policy |
 
-The generated PDF location defaults to the source checkout's `artifacts` folder
+The one-command bootstrap uses `/var/lib/ppflight-pdf-agent/artifacts` for a
+fresh installation. For manual `install.sh`, the generated PDF location defaults to the source checkout's `artifacts` folder
 when `install.sh` begins. It is not relative to `/opt` and is written to the
 installed unit as an absolute path. If that checkout is ephemeral, select a
 durable mount with `--artifact-dir` during first installation.
@@ -98,8 +99,11 @@ are supported:
 - Direct DNS: point `pdf-worker.ppflight.com` at the VPS and use the supplied
   public Nginx TLS virtual host. Nginx listens on 443 and proxies only the signed
   download route to `127.0.0.1:9760`.
-- Cloudflare Tunnel: publish the supplied loopback Nginx filter on
-  `127.0.0.1:9761`, which proxies the same route to `127.0.0.1:9760`.
+- Cloudflare Tunnel: new v1.0.11 installations expose a native download-only
+  listener on `127.0.0.1:9761`; point the same-host Tunnel there without Nginx.
+  Older installations retain their existing loopback Nginx filter on 9761,
+  which proxies signed downloads to 9760. Do not install that filter over the
+  native listener because both would claim the same port.
 
 Tunnel is optional. In Tunnel mode `cloudflared` initiates the connection, so
 the Agent VPS needs **no Internet-facing inbound port** for this service.

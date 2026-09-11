@@ -1,500 +1,99 @@
 # PPFlight PDF Agent
 
-PPFlight PDF Agent 是 PPFlight ADMIN 的独立异步账单 PDF 工作节点。它从
-`https://www.ppflight.com/api/pdf-agent/v1` 轮询任务，在服务器负载合适时生成
-PDF，并把文件保存在 Agent 所在服务器的私有目录中。
+PPFlight 的独立账单 PDF 工作节点：通过 HTTPS 向主站领取任务，在远端生成并私有保存文件。
+不连接主站数据库，不使用 Docker。后台可查看生成记录、预览和下载账单。
 
-- 生成的文件是真实 PDF，文件名统一以 `PPFlight-` 开头。
-- PDF 使用 PPFlight 官网图标，不使用 `PPFlight Cloud` 名称。
-- Agent 不连接主站数据库，只通过 PPFlight HTTPS API 通信。
-- ADMIN 只允许绑定一个主 Agent。
-- 下载必须经过最长 5 分钟的签名链接，不能把 PDF 目录设为静态网站目录。
-- Agent 固定监听 `127.0.0.1:9760`，不可直接暴露到公网。
+## 1. 后台准备
 
-## 一键安装（v1.0.11）
+在 PPFlight 后台的“账单文件设置”中：
 
-在 PDF 服务器以 root 执行这一条命令；下载、校验、解压、依赖安装和绑定引导自动完成：
+1. 填写并保存账单销售方资料、邮箱及 HTTPS 下载域名，例如 `https://pdf-worker.ppflight.com`。
+2. 生成一次性绑定码，有效期 15 分钟；安装时按提示粘贴，输入不回显。
+
+后台只允许绑定一个主 PDF Agent。绑定码和其他凭据不要提交到仓库。
+
+## 2. 一条命令安装
+
+在 PDF 服务器以 root 执行：
 
 ```bash
 bash <(curl -fsSL --connect-timeout 20 --retry 2 https://raw.githubusercontent.com/ppflight/ppflight-pdf-agent/v1.0.11/bootstrap.sh)
 ```
 
-先在 PPFlight 后台保存 HTTPS 下载域名并生成一次性绑定码，安装提示时粘贴。
-新安装不需要 Nginx，服务直接监听 `127.0.0.1:9761` 供同机 Tunnel 转发；
-控制和健康接口仍留在 `127.0.0.1:9760`。Tunnel 由管理员自行配置，脚本不安装 cloudflared。
-直接访问域名首页、未签名下载及其他路径只返回空的 404；PDF 预览／下载必须持有官网或后台签发的短期签名。
-预览模式也在签名中，不能通过添加未签名的 URL 参数启用。
+脚本自动下载 v1.0.11、校验归档、安装缺失依赖、启动服务并引导绑定。
+发行包已包含 PDF 渲染依赖，目标服务器无需运行 Composer 或 pip。
 
-重复执行保留现有绑定和账单文件。同版本不重复安装，旧版本升级沿用原文件目录和代理配置，
-不自动替换旧 Nginx；更高版本不自动降级。默认新文件目录为 `/var/lib/ppflight-pdf-agent/artifacts`。
-普通 A 记录开橙云不能转发到回环端口；如不用 Tunnel，参阅下方独立 HTTPS 反向代理方案。
+重复执行会保留已有绑定和 PDF。同版本跳过安装；升级保留原目录与代理配置；不会自动降级。
+新安装直接提供下载端口，无需 Nginx；脚本不安装或配置 cloudflared。
 
-以下手动安装步骤仅用于高级维护，不是一键安装的必做步骤。
+## 3. 配置同机 Cloudflare Tunnel
 
-## 历史生产交接（2026-08-29，不是本次安装状态）
+将后台保存的下载域名接入这台 PDF 服务器上的 Tunnel：
 
-以下是生产验收时的脱敏部署回执，不替代实时状态检查：
-
-- 当时公开发行版为
-  [`v1.0.6`](https://github.com/ppflight/ppflight-pdf-agent/releases/tag/v1.0.6)；安装或升级必须使用
-  Release 同页的 `.sha256` 附件校验压缩包；官方压缩包 SHA-256 为
-  `fe5040bf907a3dacdb8c26813254666a877c264500dfc6d861922181179fabd0`；
-- v1.0.6 修复生命周期脚本读取 `/etc/os-release` 时覆盖发布版本的问题，并在全部支持的
-  Linux 容器中检查版本参数不会被系统的 `VERSION` 字段污染；PDF 摘要区使用固定键/值表格，
-  中文和英文的标签右边缘、值起点及间距保持一致，
-  明细小计与合计金额共享同一右边缘；CI 使用真实 PDF 的文本坐标检查这些布局约束；
-- v1.0.5 的公开资产按不可变发布原则保留，但其安装器可能被系统的 `VERSION` 字段影响；
-  新安装、升级和故障恢复都应直接使用 v1.0.6 或后继版本，不得重打包或覆盖旧 Release；
-- 2026-08-29 生产节点已通过现有 `update.sh` 直接安装未修改的官方 v1.0.6 归档；
-  `current` 与 `ag-pdf` 均为 1.0.6，systemd active，原有绑定、配置、心跳和自检通过；
-- v1.0.6 标签对应源码提交 `70f77ded2192a023a7e5f70affc90e81ac7cef38`；
-  [主分支 CI](https://github.com/ppflight/ppflight-pdf-agent/actions/runs/33241843313) 与
-  [发行验证及发布](https://github.com/ppflight/ppflight-pdf-agent/actions/runs/33241895898) 均为 success；
-- 异地工作目录为 `/www/wwwroot/pdf-worker.ppflight.com`，唯一 PDF 根目录为
-  `/www/wwwroot/pdf-worker.ppflight.com/artifacts`；普通升级不得迁移、清空或另建 PDF
-  目录；
-- Agent 核心只监听 `127.0.0.1:9760`，本机 Nginx 下载过滤层只监听
-  `127.0.0.1:9761`；Cloudflare Dashboard 中唯一 Public Hostname 路由是
-  `pdf-worker.ppflight.com` → `http://127.0.0.1:9761`。不需要、也不允许开放
-  9760/9761 的公网入站端口；
-- `/healthz` 只在 9760 本机健康接口返回 200；9761 和公网 `/healthz` 必须返回
-  404。公网未签名 `/v1/download/...` 也必须返回 404；这两个 404 是安全过滤成功，
-  不是 Tunnel 故障；
-- v1.0.6 生产验收中 Nginx 配置检查、官方 PDF 坐标对齐回归和正式 systemd 沙箱真实渲染
-  均通过；Nginx、Tunnel、防火墙和监听端口均未修改；
-- ADMIN 销售方资料为 `PPFlight digital LLC`、`30 N Gould St Ste N`、
-  `Sheridan, WY 82801`、`United States`，网站为 `www.ppflight.com`，支持与页脚邮箱均为
-  `support@ppflight.com`，下载根地址为 `https://pdf-worker.ppflight.com`；
-- 验收时 ADMIN 只绑定一个 Agent，心跳版本应与当前发行版一致且状态新鲜，PDF Agent 已启用，
-  主站本地渲染 fallback 已关闭。异地 artifact 目录在升级前后均为 48 份历史 PDF，逐文件
-  SHA-256 全部一致；测试 PDF、夹具、临时目录、transient unit 和校验清单已全部清理，
-  artifact 目录外 PDF 数量为 0。这里的 48 是异地文件系统数量，不代表主站实时队列统计；
-- 主站提供安全修复命令
-  `php artisan pdf-agent:retry-artifact <artifact-uuid> --confirm='RETRY ONE PDF ARTIFACT'`。
-  它只接受最新的 `failed + processing_failed` revision，校验冻结快照 SHA 后追加一个
-  新 queued revision，并写审计。禁止用 SQL 把 failed 行直接改回 queued；
-- 端到端已验证：APP 所有权鉴权 → 302 私有/no-store/no-referrer 跳转 → Tunnel →
-  签名 PDF 下载；返回文件的 SHA-256 和大小与主站记录一致。实际 PDF 含 PPFlight
-  元数据与官网图标路径、正确销售方/页脚信息，不含 `PPFlight Cloud`，也不含 PDF
-  JavaScript、嵌入文件、Launch 或 URI 动作。
-- 主站最后一次交接确认的密封版本为 `admin-app-vnext-20260828-proxmox-templates-r151`；必须实时核对后再引用。APP 的生成、
-  下载、支付跳转与取消账单入口已经统一，ADMIN 的 PDF Agent / WWW Agent 双页签及其
-  partial 已全部进入密封树；生产回归和 228 条 ADMIN 移动端截图闭环均为 0 failure。
-- Mercury ACH 处于全量暂停状态：启用 gateway/connection 均为 0，且没有 Mercury 定时
-  同步或到期任务。维护 PDF Agent 时不得顺带启用 Mercury。
-
-后续 AI 不应把上述回执当成永久实时状态。先执行 `ag-pdf 检查`、`ag-pdf 统计`，再到
-ADMIN“系统设置 → PDF Agent”核对版本、心跳、绑定、开关和任务数；任何维修都不得打印
-绑定码、Agent token、下载 HMAC key 或带 `grant=` 的 URL。
-
-## 支持环境
-
-- Debian 12、Debian 13；
-- Ubuntu 22.04 LTS、24.04 LTS、26.04 LTS；
-- CentOS Stream 9/10、Rocky Linux 9/10、AlmaLinux 9/10；
-- Python 3.9 或更高版本；
-- PHP 8.2 或更高版本，启用 `mbstring`、`xml`、`gd`；Ubuntu 22.04 例外，允许
-  使用其发行版维护的 PHP 8.1；
-- curl、systemd；GitHub Release 已包含按锁文件构建的渲染依赖，目标机不需要 Composer；
-- v1.0.6 及更早版本的 Tunnel 方案使用 Nginx；v1.0.11 新安装直接提供下载端口，无需 Nginx。`cloudflared` 请使用
-  [Cloudflare 官方软件包](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/)，不要从未知脚本安装；
-- 公网下载可使用 Nginx HTTPS；异地 Agent 推荐使用 Cloudflare Tunnel，不需要向
-  Internet 开放 Agent 服务器的入站端口。
-
-安装器只接受上表明确列出的发行版和主版本，不会按 `ID_LIKE` 猜测兼容性，也不会把
-RHEL、Fedora 或其他衍生版当成已验证平台。EL 9 系列的干净主机会从系统 AppStream
-选择 PHP 8.2。如果固定命令路径中已有不完整或过旧的自定义 PHP，安装器会停止，不会
-切换模块、替换软链或影响现有网站。aaPanel 仅在自己的私有路径提供 PHP、且系统没有
-CLI PHP 时，安装器可另装发行版的 CLI PHP；这不会修改 aaPanel 的 PHP/FPM。当前发布
-CI 在 x86_64 上验证全部发行版；未将其他 CPU 架构列为本版本的发布保证。
-
-## 从 GitHub 自助安装
-
-仓库：`ppflight/ppflight-pdf-agent`
-
-### 方法一：克隆指定版本（开发或维护）
-
-源码仓库不提交 `renderer/vendor`。从源码安装需要由管理员预先提供 Composer 2，并且
-必须先按锁文件安装渲染依赖；获取方式应使用
-[Composer 官方下载说明](https://getcomposer.org/download/)。如果只是部署服务器，
-优先使用下方自带依赖、目标机无需 Composer 的 GitHub Release。
-
-仓库已公开，可直接用 HTTPS 克隆，不需要 GitHub 登录：
-
-```bash
-git clone --branch v1.0.11 --depth 1 \
-  https://github.com/ppflight/ppflight-pdf-agent.git
-cd ppflight-pdf-agent
-composer install --working-dir=renderer --no-dev --prefer-dist --no-interaction \
-  --no-progress --no-plugins --no-scripts --classmap-authoritative
-sudo ./install.sh --version 1.0.11 --install-deps \
-  --artifact-dir /srv/ppflight-pdf-artifacts
-```
-
-安装器会：
-
-1. 创建无登录权限的 `ppflight-pdf` 系统账户；
-2. 安装不可变版本到 `/opt/ppflight-pdf-agent/releases/1.0.11`；
-3. 创建 `/etc/ppflight-pdf-agent/config.json`；
-4. 创建并启动 `ppflight-pdf-agent.service`；
-5. 安装中文运维命令 `/usr/local/bin/ag-pdf`。
-
-首次安装建议明确使用持久目录 `/srv/ppflight-pdf-artifacts`。如果源码本身位于允许
-Agent 写入的持久磁盘，也可以省略参数并使用源码目录下的 `artifacts/`；位于
-`/root`、`/home` 或临时目录的源码不能作为 PDF 存储位置。
-
-如需使用其他独立磁盘，只能在首次安装时指定：
-
-```bash
-sudo ./install.sh --version 1.0.11 --install-deps --artifact-dir /srv/ppflight-pdf-artifacts
-```
-
-### 方法二：安装 GitHub Release（推荐）
-
-Release 同时提供压缩包和 SHA-256 文件，并已包含锁定的 PDF 渲染依赖。不要跳过校验：
-
-```bash
-work_dir="$(mktemp -d)"
-curl --fail --location --proto '=https' --tlsv1.2 \
-  --output "$work_dir/ppflight-pdf-agent-1.0.11.tar.gz" \
-  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.11/ppflight-pdf-agent-1.0.11.tar.gz
-curl --fail --location --proto '=https' --tlsv1.2 \
-  --output "$work_dir/ppflight-pdf-agent-1.0.11.tar.gz.sha256" \
-  https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.11/ppflight-pdf-agent-1.0.11.tar.gz.sha256
-cd "$work_dir"
-sha256sum -c ppflight-pdf-agent-1.0.11.tar.gz.sha256
-tar -xzf ppflight-pdf-agent-1.0.11.tar.gz
-cd ppflight-pdf-agent-1.0.11
-sudo ./install.sh --version 1.0.11 --install-deps \
-  --artifact-dir /srv/ppflight-pdf-artifacts
-```
-
-## 绑定 ADMIN
-
-1. 登录 PPFlight ADMIN；
-2. 打开“系统设置 → PDF Agent”；
-3. 填写销售方公司名、地址、底部邮箱、下载域名等设置；
-4. 生成一次性绑定码；
-5. 在 Agent 服务器上保存并使用该绑定码：
-
-```bash
-sudo install -m 0600 /dev/null /root/ppflight-pdf-bind-code
-sudoedit /root/ppflight-pdf-bind-code
-sudo ag-pdf 绑定 --code-file /root/ppflight-pdf-bind-code
-sudo rm -f /root/ppflight-pdf-bind-code
-ag-pdf 状态
-```
-
-绑定码不会作为命令参数进入 Shell 历史；成功后 ADMIN 与本地均只保留所需的安全凭据。
-
-## `ag-pdf` 中文运维菜单
-
-直接输入以下命令即可查看总览：
-
-```bash
-ag-pdf
-```
-
-总览包含：服务状态、本地健康状态、当前版本、绑定状态、Agent UUID、ADMIN
-连接、生成负载条件、可用/撤销账单数、PDF 文件数量与空间、成功/失败/待回传任务数。
-
-```text
-ag-pdf 状态               显示完整状态（默认）
-ag-pdf 检查               严格检查本地服务和 ADMIN 连接
-ag-pdf 统计               显示绑定、任务、PDF、磁盘统计
-ag-pdf 日志 -n 100        查看最近 100 条服务日志
-ag-pdf 绑定               绑定一次性 ADMIN 代码
-ag-pdf 服务 启动          启动服务
-ag-pdf 服务 停止          停止服务
-ag-pdf 服务 重启          重启服务
-ag-pdf 版本               显示当前不可变版本
-ag-pdf 路径               显示版本、配置、状态、PDF 路径
-ag-pdf 帮助               显示中文菜单
-```
-
-英文子命令仍兼容自动化脚本：`status`、`check`、`stats`、`logs`、`bind`、
-`service`、`version`、`paths`、`help`。旧命令 `pag` 仅作为兼容别名保留。
-
-## 公网下载：Cloudflare Tunnel（异地 Agent 推荐）
-
-Cloudflare Tunnel 由 Agent 服务器上的 `cloudflared` **主动向外**建立连接。因此，
-只为本 Agent 服务时，异地 VPS 不需要向公网开放任何入站端口；不要为 Tunnel 添加
-UFW、云安全组或路由器的入站规则。`127.0.0.1:9760`（Agent）和
-`127.0.0.1:9761`（过滤 Nginx）都是本机回环监听，绝不能加入 UFW 公网允许规则。
-
-```text
-客户浏览器
-    ↓ https://pdf-worker.ppflight.com/v1/download/...
-Cloudflare 边缘
-    ↓ 已建立的 Tunnel（cloudflared 主动出站）
-127.0.0.1:9761（仅下载路径的 Nginx 过滤器）
-    ↓
-127.0.0.1:9760（PDF Agent）
-```
-
-### 出站网络要求
-
-让防火墙/上游网络保留既有 DNS 解析能力（UDP/TCP 53），并允许以下**出站**流量；
-不需要相应的入站放行：
-
-| 目的 | 协议和端口 | 用途 |
-| --- | --- | --- |
-| Cloudflare Tunnel 端点 | UDP 7844（QUIC，优先） | `cloudflared` Tunnel 连接 |
-| Cloudflare Tunnel 端点 | TCP 7844（HTTP/2 回退） | UDP 7844 不可用时保持 Tunnel 可用 |
-| `www.ppflight.com` | TCP 443 | Agent 轮询 PPFlight API、回传任务结果 |
-| GitHub 及其下载域名 | TCP 443 | 仅在克隆、升级或下载 Release 时需要 |
-| 现有 DNS 解析器 | UDP/TCP 53 | 解析上述域名；沿用服务器现有 DNS 配置 |
-
-当前 cloudflared 的 HTTP/2 回退使用 **TCP 7844，不是 TCP 443**；只允许 443 而
-封锁 TCP/UDP 7844 会使 Tunnel 不能工作。TCP 443 可按需要允许
-`api.cloudflare.com`/`update.argotunnel.com` 的 cloudflared 管理和更新访问（本示例
-使用 `--no-autoupdate`），以及上表的 PPFlight/GitHub HTTPS 服务。应按组织的出站策略
-允许 Cloudflare Tunnel 端点域名（例如 `region1.v2.argotunnel.com` 和
-`region2.v2.argotunnel.com`），而不是写死边缘 IP。若出站防火墙强制检查 SNI，还要在
-7844 端口允许 `_v2-origintunneld._tcp.argotunnel.com`、`cftunnel.com`、
-`h2.cftunnel.com` 和 `quic.cftunnel.com`。若服务器还承载其他服务，保留其已有规则
-即可；本项目不执行、也不要求执行任何 `ufw allow` 入站命令。端点和端口的最新清单以
-[Cloudflare Tunnel firewall 文档](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/)
-为准。
-
-### 部署
-
-1. 安装 Nginx/网络检查工具并确认版本。若 `cloudflared` 尚未安装，请先按上方官方
-   软件包文档安装。不要在 aaPanel 服务器上再安装第二套 Nginx：
-
-Debian / Ubuntu：
-
-```bash
-sudo apt-get update
-sudo apt-get install -y nginx netcat-openbsd
-```
-
-CentOS Stream / Rocky Linux / AlmaLinux：
-
-```bash
-sudo dnf install -y nginx nmap-ncat
-```
-
-```bash
-nginx -v
-cloudflared --version
-```
-
-2. 启用回环 Nginx 过滤器；它没有静态文件目录，只允许签名下载路径：
-
-```bash
-sudo cp packaging/nginx/pdf-agent-local.conf.example \
-  /etc/nginx/conf.d/ppflight-pdf-agent-local.conf
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-aaPanel 或其他自带 Nginx 的环境应先运行 `nginx -T` 找到实际生效的 `include` 目录，
-再把同一配置放入该目录；常见 aaPanel 路径是
-`/www/server/panel/vhost/nginx/ppflight-pdf-agent-local.conf`。仍必须先 `nginx -t`，并只
-reload 当前正在运行的 Nginx，不能安装或启动第二套服务。
-
-3. 推荐使用 **Dashboard 管理的 Tunnel**，不要和本地 credentials 模式混用：
-
-   - 如果这台 VPS 已有正常运行的 Dashboard Tunnel connector：在 Cloudflare Zero
-     Trust 的 **Networks → Tunnels** 打开该 Tunnel，只新增 Public Hostname
-     `pdf-worker.ppflight.com`，Service 选择 `HTTP` 并填写 `127.0.0.1:9761`。不要重复
-     安装或覆盖现有 `cloudflared.service`。
-   - 如果这台 VPS 尚无 connector：在 Dashboard 创建 Tunnel，按页面给出的当前 Linux
-     安装命令注册 connector，再添加上述 Public Hostname。Dashboard 给出的 Tunnel
-     token 是机密；不要把它提交到仓库、工单、聊天或长期保留在 Shell 历史中。
-
-   Dashboard 模式由 Cloudflare 保存 ingress，不需要
-   `packaging/cloudflared/config.yml.example`，也不会生成本地 `<UUID>.json`。
-
-4. 只有明确选择 **locally-managed Tunnel** 时，才使用仓库内的配置示例。先按
-   [Cloudflare locally-managed Tunnel 文档](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/create-local-tunnel/)
-   完成 `tunnel login`、`tunnel create` 和 DNS route；这些步骤才会生成本机
-   `<UUID>.json`。之后复制示例，填入真实 UUID 和受保护的 credentials 路径：
-
-```bash
-sudo install -d -m 0750 /etc/cloudflared
-sudo cp packaging/cloudflared/config.yml.example /etc/cloudflared/config.yml
-sudoedit /etc/cloudflared/config.yml
-sudo cloudflared --config /etc/cloudflared/config.yml tunnel ingress validate
-```
-
-   示例中的 Tunnel origin 必须保持为 `http://127.0.0.1:9761`，不能改为 Agent 的
-   `9760`。credentials JSON、Tunnel token 和签名下载 URL 都不能提交到仓库、工单或
-   聊天中。
-
-5. locally-managed 模式可先前台验证；验证通过后，再按 Cloudflare 官方 Linux service
-   文档让该配置常驻。Dashboard 模式直接检查已注册 connector 的服务状态：
-
-```bash
-# 仅 locally-managed 模式
-sudo cloudflared --no-autoupdate --config /etc/cloudflared/config.yml tunnel run
-
-# Dashboard 模式或既有 connector
-sudo systemctl status cloudflared --no-pager
-```
-
-### 部署前检查
-
-以下命令只检查本机监听和出站连通性，不会打印凭据。`nc -u` 的成功结果取决于网络
-设备是否会回应 UDP 探测，仍应结合实际 Tunnel 注册日志判断。
-
-```bash
-sudo ss -lntp '( sport = :9760 or sport = :9761 )'
-getent ahosts region1.v2.argotunnel.com
-getent ahosts region2.v2.argotunnel.com
-nc -zvu region1.v2.argotunnel.com 7844
-nc -zv region1.v2.argotunnel.com 7844
-nc -zvu region2.v2.argotunnel.com 7844
-nc -zv region2.v2.argotunnel.com 7844
-curl --connect-timeout 5 -sS -o /dev/null -w 'PPFlight API: %{http_code}\n' \
-  https://www.ppflight.com/api/pdf-agent/v1/
-curl --connect-timeout 5 -sS -o /dev/null -w 'GitHub: %{http_code}\n' https://github.com/
-```
-
-### 部署后检查
-
-```bash
-curl -fsS http://127.0.0.1:9760/healthz
-curl -sS -o /dev/null -w '9761 /healthz: %{http_code}\n' \
-  http://127.0.0.1:9761/healthz
-sudo ss -lntp '( sport = :9760 or sport = :9761 )'
-sudo systemctl status cloudflared --no-pager
-curl -sS -o /dev/null -w '公网 /healthz: %{http_code}\n' \
-  https://pdf-worker.ppflight.com/healthz
-```
-
-locally-managed 模式再额外执行：
-
-```bash
-sudo cloudflared --config /etc/cloudflared/config.yml tunnel ingress validate
-sudo cloudflared --config /etc/cloudflared/config.yml tunnel ingress rule \
-  'https://pdf-worker.ppflight.com/v1/download/check'
-```
-
-本机 `9761 /healthz` 和公网 `/healthz` 都必须返回 `404`，证明健康接口没有穿过 Nginx；
-`ss` 的两个监听地址必须都以 `127.0.0.1:` 开头。Tunnel 已连接后，在 ADMIN 生成一条新的签名下载链接，
-从异地浏览器下载一次即可验证完整链路。不得在 Tunnel 前对客户下载启用全局
-Cloudflare Access 或 IP 白名单：下载链接本身的短时签名已经是客户授权边界；可以继续
-使用 WAF 和速率限制。
-
-## 公网下载：直接 DNS + Nginx HTTPS（替代方案）
-
-不使用 Tunnel 时，直接部署方式：
-
-```text
-pdf-worker.ppflight.com
-        ↓ A/AAAA 或 Cloudflare 代理 DNS
-VPS Nginx 公网 443
-        ↓
-127.0.0.1:9760（PDF Agent）
-```
-
-1. 把 `pdf-worker.ppflight.com` 的 DNS 指向 Agent VPS；
-2. 申请有效 HTTPS 证书；
-3. 复制并检查 Nginx 示例：
-
-```bash
-sudo cp packaging/nginx/pdf-agent-public-tls.conf.example \
-  /etc/nginx/conf.d/ppflight-pdf-agent.conf
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-aaPanel 环境同样应使用 `nginx -T` 显示的现有 include 目录，而不是
-`/etc/nginx/conf.d`。
-
-只允许公网访问 TCP 443。`9760` 和 `9761` 必须保持仅本机可用。Nginx 示例只转发
-`/v1/download/...`，不会公开 `/healthz`、配置、状态文件或 PDF 文件夹，也不会记录
-带签名参数的下载 URL。
-
-## 异步生成策略
-
-Agent 每次只处理一个任务。账单创建、支付、取消、退款或税务状态变更时，主站只追加
-一个冻结快照任务；Agent 在以下条件满足后领取并生成：
-
-- 1 分钟负载不高于配置阈值；
-- 可用内存不少于 2 GiB；
-- PDF 磁盘可用空间不少于 1 GiB。
-
-所以支付完成无需等待 PDF 渲染。生成未完成时 APP 显示“正在生成”，完成后才提供短时
-签名下载链接。
-
-## 目录与数据
-
-| 用途 | 默认路径 |
+| 配置项 | 填写内容 |
 | --- | --- |
-| 不可变版本 | `/opt/ppflight-pdf-agent/releases/<version>` |
-| 当前版本链接 | `/opt/ppflight-pdf-agent/current` |
+| 公开域名 | 与后台下载域名一致，例如 `pdf-worker.ppflight.com` |
+| Service 类型 | HTTP |
+| Service 地址 | `127.0.0.1:9761` |
+| 完整 Service URL | `http://127.0.0.1:9761` |
+
+已有 Tunnel 可直接添加该域名路由，无需重复安装 connector。
+普通 A 记录开启橙云不能代替 Tunnel 转发到本机回环端口。
+
+两个端口的分工：
+
+- **9760**：本机核心和健康检查，供安装器、运维命令使用。
+- **9761**：仅供同机 Tunnel 转发的签名 PDF 下载与预览入口。
+
+两者都只监听 `127.0.0.1`，不需要开放公网端口。v1.0.11 新安装由 Agent 原生提供 9761；
+已有旧版 Nginx 代理的升级会保留原方案，不自动替换。
+
+直接打开域名首页、`/healthz` 或没有有效签名的文件链接，**空白 404 是预期结果**。
+文件只通过主站签发的短期授权链接访问；不依赖 Referer 判断，也不向子域名传递登录会话。
+客户浏览器需要能打开这些签名链接，请勿再对整个下载域名设置 Access 登录门禁。
+
+## 4. 启用并检查
+
+回到后台“账单文件设置”，确认 Agent 在线、版本为 `1.0.11`，再启用 PDF Agent 交付并保存。
+页面下方可按账单号、客户邮箱或生成状态筛选文件；就绪文件可预览和下载。
+“在线”表示连接正常，“交付已启用”表示允许处理账单，两者分别显示。
+
+文件异步生成，每次处理一个任务。负载过高、可用内存不足 2 GiB 或磁盘剩余不足 1 GiB 时会等待，
+支付流程不会等待 PDF 渲染。主站本地渲染兜底由管理员独立控制。
+
+日常输入 `ag-pdf` 查看总览；`ag-pdf 检查` 核对服务与主站认证，`ag-pdf 日志 -n 100` 查看日志。
+
+**安装时出现一次 `curl: (7) ... port 9760` 怎么办？**
+
+v1.0.11 在服务刚启动或重启时立即检查健康，尚未监听的早期尝试会显示该提示，然后自动重试。
+若最终显示 `binding accepted and service is healthy`，说明本机健康与主站认证检查已通过，
+不需要开放 9760 或重新安装。若最终检查失败或服务持续离线，请用 `ag-pdf 检查` 和日志定位；
+一次历史成功不代替当前状态检查。
+
+## 支持环境和目录
+
+已验证 x86_64：Debian 12/13；Ubuntu 22.04/24.04/26.04 LTS；CentOS Stream、Rocky Linux、AlmaLinux 9/10。
+需要 systemd、curl、Python 3.9+、PHP 8.2+ 及 mbstring/xml/gd；Ubuntu 22.04 可使用发行版维护的 PHP 8.1。
+安装器只使用支持的发行版软件源，不替换现有不兼容的自定义 PHP，也不修改 aaPanel 的 PHP/FPM 配置。
+
+| 用途 | 一键新安装路径 |
+| --- | --- |
+| 当前程序 | `/opt/ppflight-pdf-agent/current` |
+| 版本目录 | `/opt/ppflight-pdf-agent/releases/<version>` |
 | 配置 | `/etc/ppflight-pdf-agent/config.json` |
-| 绑定和任务状态 | `/var/lib/ppflight-pdf-agent` |
-| PDF 文件 | 首次安装的源码目录 `artifacts/` 或 `--artifact-dir` 指定路径 |
+| 绑定与任务状态 | `/var/lib/ppflight-pdf-agent` |
+| PDF 文件 | `/var/lib/ppflight-pdf-agent/artifacts` |
 
-配置、绑定状态和 PDF 不会在普通升级时被覆盖。不要手动编辑
-`/var/lib/ppflight-pdf-agent/state.json`。
+旧部署保留原文件路径，使用 `ag-pdf 路径` 查看。PDF 目录不能设成静态网站目录。
 
-systemd 服务继续启用 `NoNewPrivileges`、空 capability 集、严格只读系统目录、
-私有临时目录、设备/内核/命名空间限制及 syscall allowlist。不要额外加入
-`MemoryDenyWriteExecute=yes`：受支持发行版的 PHP/Dompdf 固定渲染运行时需要可执行内存映射，
-启用该项会令 Python 调用 PHP 的完整渲染链路失败。
+APT 默认仅 IPv4、网络等待 20 秒、失败重试 2 次；只补缺失基础包。
+已有可信 CA 时，Ubuntu 官方 HTTP 源会通过临时副本使用同镜像 HTTPS，原系统源不变。
+仅 IPv6 主机可设置 `PPFLIGHT_APT_FORCE_IPV4=false`，详见维护文档。
 
-## 升级与回滚
+## 维护文档
 
-每个版本必须使用新的不可变版本号。升级包必须校验 SHA-256；生产环境建议同时启用
-仓库提供的签名校验接口。
-
-```bash
-sudo ./update.sh --version 1.0.11 \
-  --url https://github.com/ppflight/ppflight-pdf-agent/releases/download/v1.0.11/ppflight-pdf-agent-1.0.11.tar.gz \
-  --sha256 fe5040bf907a3dacdb8c26813254666a877c264500dfc6d861922181179fabd0
-```
-
-升级安装、启动或健康检查失败时会自动恢复上一个版本。手动回滚：
-
-```bash
-sudo ./rollback.sh 1.0.1
-```
-
-## 卸载
-
-保留配置、状态、版本和 PDF：
-
-```bash
-sudo ./uninstall.sh
-```
-
-同时删除程序、配置、状态和服务账户（PDF 文件仍故意保留）：
-
-```bash
-sudo ./uninstall.sh --purge
-```
-
-## 开发与发布检查
-
-```bash
-shellcheck install.sh update.sh rollback.sh uninstall.sh bind.sh ag-pdf pag scripts/*.sh
-python3 -m unittest discover -s tests -p 'test_*.py' -v
-php tests/renderer_test.php
-python3 tests/renderer_layout_test.py
-./tests/test-platform-support.sh
-./scripts/verify-release.sh --source . --version 1.0.11
-```
-
-GitHub Actions 会执行 Python 3.9/3.12/3.13/3.14、PHP 8.1/8.2/8.4/8.5、Composer、
-ShellCheck、真实 PDF 渲染、Poppler 坐标对齐回归，并在每个发行版容器内安装依赖、解析 systemd 单元和两种
-Nginx 发布配置。容器镜像按摘要固定；发布资产只从当前 Git commit 的跟踪文件构建，
-并重新按锁文件生成渲染依赖。协议和安全边界详见
-[docs/protocol.md](docs/protocol.md) 与 [docs/operations.md](docs/operations.md)。
-
-### APT 下载停在 Waiting for headers
-
-Debian / Ubuntu 安装依赖沿用本机配置的软件源，不自动换源。安装器只补缺失的基础包，
-依赖齐全时跳过 APT，避免重复请求已安装的 `passwd` 等包而触发无关升级。
-APT 下载默认仅用 IPv4，HTTP / HTTPS 连接及数据等待超时为 20 秒、失败重试 2 次；
-这些参数仅作用于本次安装，不关闭系统 IPv6。仅有 IPv6 的主机可在安装命令前设置
-`PPFLIGHT_APT_FORCE_IPV4=false`。超时是网络等待超时，并非整个安装限时。
-如果 IPv4 下仍超时，请检查输出中实际使用的镜像、代理及网络；仓库刷新失败会停止安装。
-
-如果本机已有可信 CA 证书，安装器会将 Ubuntu 官方镜像的 HTTP 请求改为同一镜像的 HTTPS 请求，
-仅使用临时 APT 源副本，结束后删除；原有源、第三方源、发行版和 Signed-By 设置不变。
-没有 CA 时不跳过 TLS 验证，也不降级 HTTPS；源码安装请先保证系统包源可用。
+- [高级安装、旧版代理、升级回滚和故障排查](docs/manual-installation.md)
+- [运行约束与安全边界](docs/operations.md)
+- [API 与文件授权协议](docs/protocol.md)
+- [2026-08-29 历史交接记录（不代表当前状态）](docs/history-2026-08-29.md)
+- [v1.0.11 发行包](https://github.com/ppflight/ppflight-pdf-agent/releases/tag/v1.0.11)
