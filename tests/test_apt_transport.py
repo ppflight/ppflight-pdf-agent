@@ -38,6 +38,7 @@ class AptTransportTests(unittest.TestCase):
    case "$item" in
      Dir::Etc::sourcelist=*) cat "${item#*=}";;
      Dir::Etc::sourceparts=*) cat "${item#*=}"/*;;
+     Acquire::https::CaInfo=*) printf '%s\\n' "$item";;
    esac
  done
 }
@@ -46,6 +47,7 @@ class AptTransportTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('https://us.archive.ubuntu.com/ubuntu noble main', result.stdout)
             self.assertIn('https://security.ubuntu.com/ubuntu', result.stdout)
+            self.assertIn('Acquire::https::CaInfo='+str(ca), result.stdout)
             self.assertIn('Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg', result.stdout)
             self.assertIn(third.read_text().strip(), result.stdout)
             self.assertEqual(before, {p: p.read_bytes() for p in before})

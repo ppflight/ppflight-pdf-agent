@@ -176,10 +176,10 @@ The public reverse proxy permits only `/v1/download/...`; `/healthz` remains a
 loopback-only liveness check.
 
 
-## v1.0.9 预览和 Tunnel 下载端口
+## v1.0.10 预览和 Tunnel 下载端口
 
 标准下载继续使用五个签名字段。预览允许增加第六个签名字段 `disposition: "inline"`；
 仅 `attachment` / `inline` 可接受，未知字段、非法值、未签名参数均拒绝。
-旧版本不能接收预览字段，控制端仅向心跳版本 >=1.0.9 的节点签发预览授权。
+旧版本不能接收预览字段，控制端仅向心跳版本 >=1.0.10 的节点签发预览授权。
 `127.0.0.1:9761` 为新安装的下载专用端口，不开放 `/healthz` 或其他接口。
 直接域名访问和无授权请求返回空 404，不输出服务版本、目录或 HTML 错误页。

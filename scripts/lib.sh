@@ -258,6 +258,12 @@ apt_for_installer() (
         sed -E -i 's#http://(([a-z]{2}\.)?archive|security)\.ubuntu\.com/ubuntu#https://\1.ubuntu.com/ubuntu#g' "${copied_file}"
       done
       source_options=(-o "Dir::Etc::sourcelist=${source_dir}/sources.list" -o "Dir::Etc::sourceparts=${source_dir}/sources.list.d")
+      # Minimal images using OpenSSL may not yet have the default cert.pem
+      # symlink. Point APT at the verified CA bundle without overriding any
+      # administrator-configured CAInfo policy or disabling verification.
+      if [[ "${apt_config}" != *'::CaInfo '* && "${apt_config}" != *'::CAInfo '* ]]; then
+        source_options+=(-o Acquire::https::CaInfo=/etc/ssl/certs/ca-certificates.crt)
+      fi
       note 'using HTTPS for official Ubuntu mirrors in temporary APT sources (system sources unchanged)'
     fi
   fi
