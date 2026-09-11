@@ -226,17 +226,46 @@ php_binary_is_os_managed() {
   esac
 }
 
-apt_for_installer() {
-  # Scope transport settings to this invocation; never disable host IPv6 or
-  # rewrite the administrator's repositories. IPv6-only hosts can opt out.
-  local force_ipv4=${PPFLIGHT_APT_FORCE_IPV4:-true}
+apt_for_installer() (
+  # All transport/source overrides are private to this APT process.
+  local force_ipv4=${PPFLIGHT_APT_FORCE_IPV4:-true} apt_config source_file copied_file
+  local source_dir=''
+  local -a source_options=() source_files=()
   [[ "${force_ipv4}" == true || "${force_ipv4}" == false ]] || \
     die "PPFLIGHT_APT_FORCE_IPV4 must be true or false"
-  DEBIAN_FRONTEND=noninteractive apt-get \
+  apt_config=$(apt-config dump 2>/dev/null)
+  # Preserve custom source locations. HTTPS conversion is limited to official
+  # Ubuntu mirrors and keeps suites, components and Signed-By unchanged.
+  if [[ -s /etc/ssl/certs/ca-certificates.crt ]] &&
+      [[ "${apt_config}" == *'Dir::Etc "etc/apt";'* || "${apt_config}" == *'Dir::Etc "/etc/apt";'* ]] &&
+      [[ "${apt_config}" == *'Dir::Etc::sourcelist "sources.list";'* ]] &&
+      [[ "${apt_config}" == *'Dir::Etc::sourceparts "sources.list.d";'* ]]; then
+    for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+      [[ ! -f "${source_file}" ]] || source_files+=("${source_file}")
+    done
+    if [[ ${#source_files[@]} -gt 0 ]] && grep -Eq 'http://(([a-z]{2}\.)?archive|security)\.ubuntu\.com/ubuntu' "${source_files[@]}"; then
+      source_dir=$(mktemp -d /var/tmp/ppflight-pdf-apt.XXXXXX)
+      trap 'rm -rf -- "${source_dir}"' EXIT
+      mkdir "${source_dir}/sources.list.d"
+      : >"${source_dir}/sources.list"
+      for source_file in "${source_files[@]}"; do
+        if [[ "${source_file}" == /etc/apt/sources.list ]]; then
+          copied_file="${source_dir}/sources.list"
+        else
+          copied_file="${source_dir}/sources.list.d/${source_file##*/}"
+        fi
+        cp -L --preserve=mode -- "${source_file}" "${copied_file}"
+        sed -E -i 's#http://(([a-z]{2}\.)?archive|security)\.ubuntu\.com/ubuntu#https://\1.ubuntu.com/ubuntu#g' "${copied_file}"
+      done
+      source_options=(-o "Dir::Etc::sourcelist=${source_dir}/sources.list" -o "Dir::Etc::sourceparts=${source_dir}/sources.list.d")
+      note 'using HTTPS for official Ubuntu mirrors in temporary APT sources (system sources unchanged)'
+    fi
+  fi
+  DEBIAN_FRONTEND=noninteractive apt-get "${source_options[@]}" \
     -o "Acquire::ForceIPv4=${force_ipv4}" \
     -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
     -o Acquire::Retries=2 "$@"
-}
+)
 
 install_apt_dependencies() {
   local minimum_php=$1 package

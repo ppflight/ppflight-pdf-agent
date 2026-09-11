@@ -10,6 +10,10 @@ require_root
 require_linux_distribution
 [[ "${VERSION}" == 'ppflight-release-version-sentinel' ]] || \
   die "distribution check overwrote the lifecycle release version"
+if [[ -s /tmp/ppflight-ci-ca.crt && ! -s /etc/ssl/certs/ca-certificates.crt ]]; then
+  install -d -m 0755 /etc/ssl/certs
+  install -m 0644 /tmp/ppflight-ci-ca.crt /etc/ssl/certs/ca-certificates.crt
+fi
 install_dependencies
 [[ "${VERSION}" == 'ppflight-release-version-sentinel' ]] || \
   die "dependency installation overwrote the lifecycle release version"
@@ -59,7 +63,7 @@ read -r PLATFORM_ID PLATFORM_VERSION < <(
   die "platform identity read overwrote the lifecycle release version"
 PLATFORM_PACKAGE_FAMILY="$(distribution_package_family "${PLATFORM_ID}")"
 case "${PLATFORM_PACKAGE_FAMILY}" in
-  apt) apt-get install -y --no-install-recommends nginx openssl ;;
+  apt) apt_for_installer install -y --no-install-recommends nginx openssl ;;
   dnf) dnf install -y --setopt=install_weak_deps=False nginx openssl ;;
   *) die "unsupported package manager family for Nginx smoke" ;;
 esac

@@ -68,7 +68,7 @@ jobs:
       - name: Verify ${{ matrix.name }}
         env:
           PLATFORM_IMAGE: ${{ matrix.image }}
-        run: docker run --rm --volume "$RUNNER_TEMP/pdf-agent-platform-src:/src:ro" --workdir /src "$PLATFORM_IMAGE" bash scripts/ci-platform-smoke.sh
+        run: docker run --rm --volume "$RUNNER_TEMP/pdf-agent-platform-src:/src:ro" --volume /etc/ssl/certs/ca-certificates.crt:/tmp/ppflight-ci-ca.crt:ro --workdir /src "$PLATFORM_IMAGE" bash scripts/ci-platform-smoke.sh
 
   verify:
     runs-on: ubuntu-24.04

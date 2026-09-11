@@ -2,7 +2,7 @@
 # Standalone entry point: no checkout, Composer, nginx or sourced files needed.
 set -Eeuo pipefail
 
-readonly RELEASE_VERSION=1.0.8
+readonly RELEASE_VERSION=1.0.9
 readonly RELEASE_BASE="https://github.com/ppflight/ppflight-pdf-agent/releases/download/v${RELEASE_VERSION}"
 readonly APP_CURRENT=/opt/ppflight-pdf-agent/current
 readonly CONFIG_PATH=/etc/ppflight-pdf-agent/config.json
@@ -14,6 +14,47 @@ fail() { note "$*"; exit 1; }
 cleanup() { [[ -z "${WORK_DIR}" ]] || rm -rf -- "${WORK_DIR}"; }
 trap cleanup EXIT
 trap 'note "安装未完成，请按上方错误处理后重新运行；已有账单文件不会被清空。"' ERR
+
+apt_for_installer() (
+  # All transport/source overrides are private to this APT process.
+  local force_ipv4=${PPFLIGHT_APT_FORCE_IPV4:-true} apt_config source_file copied_file
+  local source_dir=''
+  local -a source_options=() source_files=()
+  [[ "${force_ipv4}" == true || "${force_ipv4}" == false ]] || \
+    fail "PPFLIGHT_APT_FORCE_IPV4 must be true or false"
+  apt_config=$(apt-config dump 2>/dev/null)
+  # Preserve custom source locations. HTTPS conversion is limited to official
+  # Ubuntu mirrors and keeps suites, components and Signed-By unchanged.
+  if [[ -s /etc/ssl/certs/ca-certificates.crt ]] &&
+      [[ "${apt_config}" == *'Dir::Etc "etc/apt";'* || "${apt_config}" == *'Dir::Etc "/etc/apt";'* ]] &&
+      [[ "${apt_config}" == *'Dir::Etc::sourcelist "sources.list";'* ]] &&
+      [[ "${apt_config}" == *'Dir::Etc::sourceparts "sources.list.d";'* ]]; then
+    for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+      [[ ! -f "${source_file}" ]] || source_files+=("${source_file}")
+    done
+    if [[ ${#source_files[@]} -gt 0 ]] && grep -Eq 'http://(([a-z]{2}\.)?archive|security)\.ubuntu\.com/ubuntu' "${source_files[@]}"; then
+      source_dir=$(mktemp -d /var/tmp/ppflight-pdf-apt.XXXXXX)
+      trap 'rm -rf -- "${source_dir}"' EXIT
+      mkdir "${source_dir}/sources.list.d"
+      : >"${source_dir}/sources.list"
+      for source_file in "${source_files[@]}"; do
+        if [[ "${source_file}" == /etc/apt/sources.list ]]; then
+          copied_file="${source_dir}/sources.list"
+        else
+          copied_file="${source_dir}/sources.list.d/${source_file##*/}"
+        fi
+        cp -L --preserve=mode -- "${source_file}" "${copied_file}"
+        sed -E -i 's#http://(([a-z]{2}\.)?archive|security)\.ubuntu\.com/ubuntu#https://\1.ubuntu.com/ubuntu#g' "${copied_file}"
+      done
+      source_options=(-o "Dir::Etc::sourcelist=${source_dir}/sources.list" -o "Dir::Etc::sourceparts=${source_dir}/sources.list.d")
+      note 'using HTTPS for official Ubuntu mirrors in temporary APT sources (system sources unchanged)'
+    fi
+  fi
+  DEBIAN_FRONTEND=noninteractive apt-get "${source_options[@]}" \
+    -o "Acquire::ForceIPv4=${force_ipv4}" \
+    -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+    -o Acquire::Retries=2 "$@"
+)
 
 main() {
   case "${1:-}" in
@@ -32,12 +73,8 @@ main() {
   note '1/4 检查环境'
   if ! command -v python3 >/dev/null; then
     if command -v apt-get >/dev/null; then
-      local force_ipv4=${PPFLIGHT_APT_FORCE_IPV4:-true}
-      [[ "${force_ipv4}" == true || "${force_ipv4}" == false ]] || fail 'PPFLIGHT_APT_FORCE_IPV4 只能为 true 或 false。'
-      local -a apt_options=(-o "Acquire::ForceIPv4=${force_ipv4}" -o Acquire::http::Timeout=20
-        -o Acquire::https::Timeout=20 -o Acquire::Retries=2)
-      DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update
-      DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" install -y --no-install-recommends python3
+      apt_for_installer -o APT::Update::Error-Mode=any update
+      apt_for_installer install -y --no-install-recommends python3
     elif command -v dnf >/dev/null; then
       dnf install -y --setopt=install_weak_deps=False python3
     else
