@@ -33,7 +33,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-VERSION = "1.0.13"
+VERSION = "1.0.14"
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _DOWNLOAD_NAME_RE = re.compile(r"^PPFlight-[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.pdf$")
@@ -98,8 +98,23 @@ def _write_task_diagnostic(code: str) -> None:
     print("ppflight-pdf-agent: task_failed=" + code, file=sys.stderr, flush=True)
 
 
-class AdminConflict(AgentError):
-    """ADMIN reports that another effective Agent already exists (HTTP 409)."""
+class AdminHttpError(AgentError):
+    """Bounded control-plane diagnostics; never retain response bodies or tokens."""
+
+    def __init__(self, status: int, path: str, code: str, ray: str = ""):
+        self.status = int(status)
+        self.endpoint = path if path in {"/agents/bind", "/agents/heartbeat", "/agents/claim", "/agents/complete"} else "unknown"
+        self.code = code if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", code) else "unrecognized_error"
+        self.ray = ray if re.fullmatch(r"[A-Fa-f0-9]{16,32}(?:-[A-Za-z]{3})?", ray) else ""
+        super().__init__(self.diagnostic())
+
+    def diagnostic(self) -> str:
+        return "endpoint=%s http_status=%s code=%s%s" % (
+            self.endpoint, self.status, self.code, " cf_ray=" + self.ray if self.ray else "")
+
+
+class AdminConflict(AdminHttpError):
+    """Explicit JSON pdf_agent_already_bound response; operator action required."""
 
 
 class AdminAuthenticationError(AgentError):
@@ -522,15 +537,28 @@ class AdminClient:
             # and must remain retryable rather than deleting valid credentials.
             if exc.code == 401:
                 raise AdminAuthenticationError("ADMIN rejected the bound Agent credential (HTTP %s)" % exc.code) from exc
-            if exc.code == 409:
+            # Only a bounded JSON machine code can establish a binding conflict.
+            # An edge/gateway 409, malformed response or task conflict is retryable.
+            code = "http_error"
+            explicit_conflict = False
+            if exc.headers and exc.headers.get_content_type().lower() == "application/json":
                 try:
-                    detail = _decode_json(exc.read(65536), "ADMIN returned invalid conflict JSON")
+                    raw = exc.read(65537)
+                    detail = _decode_json(raw, "invalid error JSON") if len(raw) <= 65536 else None
+                    if isinstance(detail, dict):
+                        nested = detail.get("error")
+                        codes = [value for value in [detail.get("code"), nested.get("code") if isinstance(nested, dict) else None] if value is not None]
+                        if codes and all(isinstance(value, str) and value == codes[0] for value in codes):
+                            code = codes[0]
+                            explicit_conflict = code == "pdf_agent_already_bound"
+                    else:
+                        code = "invalid_error_json"
                 except (AgentError, OSError):
-                    detail = {}
-                if isinstance(detail, dict) and detail.get("code") == "pdf_agent_already_bound":
-                    raise AdminConflict("ADMIN rejected binding: pdf_agent_already_bound; only one effective PDF Agent is permitted (HTTP 409)") from exc
-                raise AdminConflict("ADMIN rejected binding: only one effective PDF Agent is permitted (HTTP 409)") from exc
-            raise AgentError("ADMIN request failed (HTTP %s)" % exc.code) from exc
+                    code = "invalid_error_json"
+            else:
+                code = "non_json_error"
+            error_type = AdminConflict if exc.code == 409 and explicit_conflict else AdminHttpError
+            raise error_type(exc.code, path, code, exc.headers.get("CF-Ray", "") if exc.headers else "") from exc
         except (URLError, OSError) as exc:
             raise AgentError("ADMIN HTTPS request failed") from exc
         if len(body) > 1024 * 1024:
@@ -859,10 +887,12 @@ class Agent:
                 print("ppflight-pdf-agent: admin_authentication_invalid", file=sys.stderr, flush=True)
                 stop.set()
                 break
-            except AdminConflict:
-                print("ppflight-pdf-agent: admin_conflict", file=sys.stderr, flush=True)
+            except AdminConflict as exc:
+                print("ppflight-pdf-agent: admin_conflict action=stop " + exc.diagnostic(), file=sys.stderr, flush=True)
                 stop.set()
                 break
+            except AdminHttpError as exc:
+                print("ppflight-pdf-agent: admin_rejected action=retry " + exc.diagnostic(), file=sys.stderr, flush=True)
             except AgentError as exc:
                 message = str(exc)
                 if message.startswith("ADMIN HTTPS"):

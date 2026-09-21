@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
 import agent as agent_cli
-from pdf_agent.core import (AdminAuthenticationError, AdminClient, AdminConflict, Agent, AgentConfig, AgentError,
+from pdf_agent.core import (AdminAuthenticationError, AdminClient, AdminConflict, AdminHttpError, Agent, AgentConfig, AgentError,
                             DownloadServer, Renderer, RendererError, TASK_DIAGNOSTIC_CODES,
                             canonical_json_sha256, validate_task)
 
@@ -344,6 +344,63 @@ class AgentCoreTests(unittest.TestCase):
                     client.post("/agents/heartbeat", {})
                 self.assertNotIsInstance(failure.exception, AdminAuthenticationError)
 
+    def test_only_explicit_json_binding_conflict_is_fatal(self):
+        cases = [
+            (409, "application/json", b'{"code":"pdf_agent_already_bound"}', True),
+            (409, "application/json; charset=utf-8", b'{"error":{"code":"pdf_agent_already_bound"}}', True),
+            (409, "text/html", b'{"code":"pdf_agent_already_bound"}', False),
+            (409, "application/json", b'{"code":"claim_busy"}', False),
+            (409, "application/json", b'{"code":"pdf_agent_already_bound","error":{"code":"claim_busy"}}', False),
+            (409, "application/json", b'{"code":["pdf_agent_already_bound"]}', False),
+            (409, "application/json", b'{"error":"pdf_agent_already_bound"}', False),
+            (409, "application/json", b'{}', False),
+            (409, "application/json", b'', False),
+            (409, "application/json", b'not json', False),
+            (409, "application/json", b' ' * 65537 + b'{"code":"pdf_agent_already_bound"}', False),
+            (403, "application/json", b'{"code":"pdf_agent_already_bound"}', False),
+        ]
+        client = AdminClient(self.config)
+        for status, content_type, body, fatal in cases:
+            with self.subTest(status=status, content_type=content_type, body=body[:80]):
+                headers = Message(); headers["Content-Type"] = content_type
+                headers["CF-Ray"] = "a3ea2b074b3c3019-LAX"
+                client.opener = Mock()
+                client.opener.open.side_effect = HTTPError("https://admin.example.test/agents/claim", status, "error", headers, io.BytesIO(body))
+                with self.assertRaises(AdminHttpError) as failure:
+                    client.post("/agents/claim", {}, token="secret-token")
+                self.assertEqual(isinstance(failure.exception, AdminConflict), fatal)
+                self.assertEqual(failure.exception.endpoint, "/agents/claim")
+                self.assertEqual(failure.exception.status, status)
+                self.assertEqual(failure.exception.ray, "a3ea2b074b3c3019-LAX")
+
+    def test_temporary_conflict_retries_with_diagnostics_and_preserves_binding(self):
+        self.bind_local()
+        before = self.config.state_path.read_bytes()
+        stop = Mock(); stop.is_set.side_effect = [False, False, True]
+        self.agent.cycle = Mock(side_effect=[AdminHttpError(409, "/agents/claim", "claim_busy"), None])
+        with patch("sys.stderr", io.StringIO()) as log:
+            self.agent.run(stop)
+        self.assertEqual(self.agent.cycle.call_count, 2)
+        self.assertEqual(stop.wait.call_count, 2)
+        stop.wait.assert_called_with(self.config.poll_interval_seconds)
+        stop.set.assert_not_called()
+        self.assertEqual(self.config.state_path.read_bytes(), before)
+        self.assertIn("action=retry endpoint=/agents/claim http_status=409 code=claim_busy", log.getvalue())
+
+    def test_error_diagnostics_never_include_response_message_body_or_bearer(self):
+        client = AdminClient(self.config)
+        headers = Message(); headers["Content-Type"] = "application/json"
+        headers["CF-Ray"] = "invalid-secret-header"
+        client.opener = Mock()
+        client.opener.open.side_effect = HTTPError("https://admin.example.test/agents/claim", 409, "private reason", headers,
+            io.BytesIO(b'{"error":{"code":"bad code\\nsecret","message":"private-response-token"},"token":"private-body-token"}'))
+        with self.assertRaises(AdminHttpError) as failure:
+            client.post("/agents/claim", {}, token="private-bearer-token")
+        diagnostic = failure.exception.diagnostic()
+        self.assertIn("code=unrecognized_error", diagnostic)
+        for value in ("private", "secret", "token", "header"):
+            self.assertNotIn(value, diagnostic)
+
     def test_admin_response_rejects_excessive_json_nesting(self):
         class Response:
             status = 200
@@ -362,11 +419,12 @@ class AgentCoreTests(unittest.TestCase):
 
     def test_admin_conflict_stops_worker_loop(self):
         stop = threading.Event()
-        self.agent.cycle = Mock(side_effect=AdminConflict("conflict"))
-        with patch("sys.stderr", io.StringIO()):
+        self.agent.cycle = Mock(side_effect=AdminConflict(409, "/agents/claim", "pdf_agent_already_bound"))
+        with patch("sys.stderr", io.StringIO()) as log:
             self.agent.run(stop)
         self.assertTrue(stop.is_set())
         self.agent.cycle.assert_called_once()
+        self.assertIn("action=stop endpoint=/agents/claim http_status=409 code=pdf_agent_already_bound", log.getvalue())
 
     def test_authentication_revocation_clears_binding_stops_worker_and_rejects_old_grant(self):
         self.bind_local()
