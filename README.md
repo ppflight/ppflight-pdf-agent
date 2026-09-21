@@ -17,10 +17,10 @@ PPFlight 的独立账单 PDF 工作节点：通过 HTTPS 向主站领取任务�
 在 PDF 服务器以 root 执行：
 
 ```bash
-bash <(curl -fsSL --connect-timeout 20 --retry 2 https://raw.githubusercontent.com/ppflight/ppflight-pdf-agent/v1.0.14/bootstrap.sh)
+bash <(curl -fsSL --connect-timeout 20 --retry 2 https://raw.githubusercontent.com/ppflight/ppflight-pdf-agent/v1.0.15/bootstrap.sh)
 ```
 
-脚本自动下载 v1.0.14、校验归档、安装缺失依赖、启动服务并引导绑定。
+脚本自动下载 v1.0.15、校验归档、安装缺失依赖、启动服务并引导绑定。
 发行包已包含 PDF 渲染依赖，目标服务器无需运行 Composer 或 pip。
 
 重复执行会保留已有绑定和 PDF。同版本跳过安装；升级保留原目录与代理配置；不会自动降级。
@@ -45,7 +45,7 @@ bash <(curl -fsSL --connect-timeout 20 --retry 2 https://raw.githubusercontent.c
 - **9760**：本机核心和健康检查，供安装器、运维命令使用。
 - **9761**：仅供同机 Tunnel 转发的签名 PDF 下载与预览入口。
 
-两者都只监听 `127.0.0.1`，不需要开放公网端口。v1.0.14 新安装由 Agent 原生提供 9761；
+两者都只监听 `127.0.0.1`，不需要开放公网端口。v1.0.15 新安装由 Agent 原生提供 9761；
 已有旧版 Nginx 代理的升级会保留原方案，不自动替换。
 
 直接打开域名首页、`/healthz` 或没有有效签名的文件链接，**空白 404 是预期结果**。
@@ -54,7 +54,7 @@ bash <(curl -fsSL --connect-timeout 20 --retry 2 https://raw.githubusercontent.c
 
 ## 4. 启用并检查
 
-回到后台“账单文件设置”，确认 Agent 在线、版本为 `1.0.14`，再启用 PDF Agent 交付并保存。
+回到后台“账单文件设置”，确认 Agent 在线、版本为 `1.0.15`，再启用 PDF Agent 交付并保存。
 页面下方可按账单号、客户邮箱或生成状态筛选文件；就绪文件可预览和下载。
 “在线”表示连接正常，“交付已启用”表示允许处理账单，两者分别显示。
 
@@ -69,19 +69,19 @@ bash <(curl -fsSL --connect-timeout 20 --retry 2 https://raw.githubusercontent.c
 sudo ag-pdf update
 ```
 
-可固定目标版本，例如 `sudo ag-pdf update 1.0.14`。该命令下载 Release 的 SHA-256、复用受控更新器并在健康检查失败时恢复上一版本，配置、绑定和既有 PDF 均保留。初次从 v1.0.11 升到 v1.0.14 时请按本 Release 页面提供的受控 `update.sh` 命令执行一次；该旧版的 `ag-pdf` 尚不含此子命令。
+可固定目标版本，例如 `sudo ag-pdf update 1.0.15`。该命令下载 Release 的 SHA-256、复用受控更新器并在健康检查失败时恢复上一版本，配置、绑定和既有 PDF 均保留。初次从 v1.0.11 升到 v1.0.15 时请按本 Release 页面提供的受控 `update.sh` 命令执行一次；该旧版的 `ag-pdf` 尚不含此子命令。
 
 v1.0.11 首次升级可直接手动运行这一条 GitHub 命令，无需重新绑定：
 
 ```bash
-bash <(curl -fsSL --connect-timeout 20 --retry 2 https://raw.githubusercontent.com/ppflight/ppflight-pdf-agent/v1.0.14/bootstrap.sh) --skip-bind
+bash <(curl -fsSL --connect-timeout 20 --retry 2 https://raw.githubusercontent.com/ppflight/ppflight-pdf-agent/v1.0.15/bootstrap.sh) --skip-bind
 ```
 
 升级后的 Agent 会领取后台为 v1.0.12 准备的待处理新版账单。历史 PDF 不会原地改写；需要新版内容时由后台创建新的 PDF 修订。
 
 **安装时出现一次 `curl: (7) ... port 9760` 怎么办？**
 
-v1.0.14 在服务刚启动或重启时立即检查健康，尚未监听的早期尝试会显示该提示，然后自动重试。
+v1.0.15 在服务刚启动或重启时立即检查健康，尚未监听的早期尝试会显示该提示，然后自动重试。
 若最终显示 `binding accepted and service is healthy`，说明本机健康与主站认证检查已通过，
 不需要开放 9760 或重新安装。若最终检查失败或服务持续离线，请用 `ag-pdf 检查` 和日志定位；
 一次历史成功不代替当前状态检查。
@@ -114,8 +114,8 @@ Cloudflare Tunnel 需允许出站访问 7844 端口的 `quic.cftunnel.com` 等�
 - [运行约束与安全边界](docs/operations.md)
 - [API 与文件授权协议](docs/protocol.md)
 - [2026-08-29 历史交接记录（不代表当前状态）](docs/history-2026-08-29.md)
-- [v1.0.14 发行包](https://github.com/ppflight/ppflight-pdf-agent/releases/tag/v1.0.14)
+- [v1.0.15 发行包](https://github.com/ppflight/ppflight-pdf-agent/releases/tag/v1.0.15)
 
-## 1.0.14 冲突恢复修复
+## 1.0.15 冲突恢复修复
 
-普通 HTTP 409 按轮询间隔重试，保留绑定和下载服务；只有 JSON 明确返回 `pdf_agent_already_bound` 才停止。日志记录接口、HTTP 状态、错误码、可用的 CF-Ray 和 retry/stop 决策，不输出响应正文或令牌。已安装 1.0.13 可运行 `sudo ag-pdf update 1.0.14` 升级。
+普通 HTTP 409 按轮询间隔重试，保留绑定和下载服务；只有 JSON 明确返回 `pdf_agent_already_bound` 才停止。日志记录接口、HTTP 状态、错误码、可用的 CF-Ray 和 retry/stop 决策，不输出响应正文或令牌。已安装 1.0.13 可运行 `sudo ag-pdf update 1.0.15` 升级。

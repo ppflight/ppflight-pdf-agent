@@ -37,7 +37,7 @@ jobs:
           - name: ubuntu-26.04
             image: ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
           - name: centos-stream-9
-            image: quay.io/centos/centos:stream9@sha256:7d3c87ab567add60d0153a6a17bc10d0f19cd982a2d533724298ebd1ee751eab
+            image: quay.io/centos/centos:stream9@sha256:40f7299e671cc57bae0cbb443cd999e700b12f7f408bac51d0430c07244dfdac
           - name: centos-stream-10
             image: quay.io/centos/centos:stream10@sha256:93f84e3f77a01b972d2181d9c24f321457a68e6bae5fe1b075dbe9085197f788
           - name: rocky-9
